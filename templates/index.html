@@ -209,7 +209,7 @@
           <div class="fare unknown">prijs onbekend</div>
         {% endif %}
         <div class="dealname">
-          {% if r.published_student %}
+          {% if r.fare_source == 'published' %}
             studentenprijs van het podium
           {% else %}
             {{ r.deal.label if r.deal else '' }}

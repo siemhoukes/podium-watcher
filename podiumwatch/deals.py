@@ -143,20 +143,45 @@ def deal_price_cents(
     price_min_cents: int | None,
     published_student_cents: int | None = None,
 ) -> int | None:
-    """What you would actually pay, or None if it cannot be computed.
+    """The cheapest fare you could actually get, or None if unknowable.
 
-    A price the venue itself publishes for students beats anything we could
-    derive from a discount rule, so it wins outright. Chasse lists
-    'scholier/student/CJP € 10,00' next to 'normaal € 14,50' -- applying the
-    50% rule on top of that would bill a €14,50 seat as €5.
+    Two real options can exist at once and neither dominates:
 
-    Percentage deals need a base price; without one we return None rather
-    than inventing a figure, so the UI can say "unknown" instead of showing a
-    confident wrong number.
+    - the venue's **last-minute rule** (a flat fare, or a percentage), and
+    - a **student/CJP category the venue publishes** in its price block.
+
+    Neither can simply win. Chasse's 'scholier/student/CJP € 10,00' beside
+    'normaal € 14,50' is a genuine student fare, so applying the 50% rule to
+    the €10 would bill a €14,50 seat as €5. But Parktheater's CJP category is
+    only €2,50 off — €46,00 against a €48,50 normal price — which is their
+    advance discount, not their €15 last-minute fare. Treating that as *the*
+    student price quoted €46 for a show you can walk into for €15.
+
+    So the honest answer is whichever is cheaper: both are published, both are
+    real, and you would take the better one.
+
+    Percentage deals need a base price; without one we return None rather than
+    inventing a figure, so the UI can say "unknown" instead of a confident
+    wrong number.
     """
-    if published_student_cents:
-        return published_student_cents
+    rule = _rule_price_cents(venue_id, price_min_cents)
+    candidates = [c for c in (rule, published_student_cents) if c]
+    return min(candidates) if candidates else None
 
+
+def deal_price_source(
+    venue_id: str,
+    price_min_cents: int | None,
+    published_student_cents: int | None = None,
+) -> str | None:
+    """'rule' or 'published' -- which option produced the quoted fare."""
+    rule = _rule_price_cents(venue_id, price_min_cents)
+    if published_student_cents and (rule is None or published_student_cents < rule):
+        return "published"
+    return "rule" if rule else None
+
+
+def _rule_price_cents(venue_id: str, price_min_cents: int | None) -> int | None:
     deal = DEALS.get(venue_id)
     if deal is None:
         return None

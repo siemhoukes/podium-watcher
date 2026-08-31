@@ -108,7 +108,13 @@ the student price**. So: `normaal` rows set the base price, a student/CJP row is
 used *directly* as the fare, and subscription tiers (Cineville, BredaPas,
 Kidspas) are ignored — they are not open to a walk-up buyer.
 
-Where a venue publishes its own student fare, that always beats a computed one.
+A published student category does **not** automatically win, though. Chassé's
+`scholier/student/CJP € 10,00` is a real student fare, but Parktheater's CJP
+category is only €2,50 off — €46,00 against a €48,50 normal price — because it
+is their *advance* discount, not their €15 last-minute fare. Quoting it billed
+Tosca at €46 for a show you can walk into for €15. Both options are published
+and both are real, so the fare shown is simply the cheaper of the two, and the
+label says which one it came from.
 
 Verkadefabriek publishes no price in its listing at all, but its detail pages do
 (`€ 26,00 Normaal`, `€ 24,00 Supporter`). The poller fetches those once per show,

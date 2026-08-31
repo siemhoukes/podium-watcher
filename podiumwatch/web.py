@@ -85,6 +85,10 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
             deals.deal_price_cents(s["venue_id"], price_min, price_student)
             if deal_ok else None
         )
+        fare_source = (
+            deals.deal_price_source(s["venue_id"], price_min, price_student)
+            if deal_ok else None
+        )
         wstate, until = deals.window_state(s["venue_id"], starts_at, now)
         look = forecast.outlook(history, starts_at)
 
@@ -111,6 +115,7 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "fare": fare,
                 "base_price": price_min,
                 "published_student": price_student,
+                "fare_source": fare_source,
                 "base_price_max": latest.get("price_max_cents"),
                 # Only ever set when a venue really told us a number. Still
                 # always None today -- see the note in the template.
