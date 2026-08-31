@@ -4,7 +4,7 @@ Tracks last-minute youth/student ticket deals at theatres near Tilburg, and
 predicts **which shows will still be available when their discount window
 opens**.
 
-Destined for `podium.siem.codes` on the Pi, behind the shared `siem-auth` gate.
+**Live at [podium.siem.codes](https://podium.siem.codes)**, behind the shared `siem-auth` gate.
 
 ## Why it forecasts instead of just checking
 
@@ -129,8 +129,16 @@ id and need no such trick.
 
 ## Deployment
 
-Live on the Pi as `podium-poller.timer`, four polls a day (06/12/18/22, with a
-15-minute random delay), `Persistent=true` so a missed run still collects.
+Two units on the Pi: `podium-poller.timer` polls four times a day (06/12/18/22,
+15-minute random delay, `Persistent=true` so a missed run still collects), and
+`podium-web.service` serves the dashboard under gunicorn on port 5011. nginx
+fronts it at `podium.siem.codes` behind `siem-auth`.
+
+Adding the subdomain to the tunnel has one trap: the service runs with
+`--config /etc/cloudflared/config.yml`, but a bare `cloudflared tunnel ingress
+validate` reads `~/.cloudflared/config.yml`, which is a different, stale file.
+Always pass `--config` explicitly. `route dns` must run as `sausje` *without*
+sudo, since `cert.pem` lives in that home directory.
 
 ```bash
 ssh sausje@raspberrypi "cd ~/podium-watcher && git pull --ff-only && sudo systemctl start podium-poller.service"
