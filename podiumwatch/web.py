@@ -16,7 +16,7 @@ from urllib.parse import quote_plus
 
 from flask import Flask, redirect, render_template, request
 
-from . import deals, forecast
+from . import deals, forecast, health
 from .models import AVAILABLE, LIMITED, SOLD_OUT
 
 DB_PATH = Path(
@@ -232,6 +232,10 @@ def index():
     now = datetime.now()
     with connect() as conn:
         rows = _rows_for(conn, now, now + timedelta(days=days))
+        # Surfaced as a banner: a venue that silently stopped returning rows
+        # would otherwise just look like a venue with nothing on.
+        problems = [v for v in health.venue_health(conn, list(VENUE_META))
+                    if v["status"] != health.OK]
 
     total_found = len(rows)
 
@@ -278,6 +282,7 @@ def index():
         price_steps=PRICE_STEPS,
         venue_meta=VENUE_META,
         hidden_count=total_found - len(rows),
+        problems=problems,
         stats=_stats(),
         now=now,
     )
@@ -334,6 +339,27 @@ def toggle_hide():
         finally:
             conn.close()
     return _back()
+
+
+@app.route("/status")
+def status():
+    """Is every scraper still working?
+
+    Without this a broken venue looks exactly like a quiet one.
+    """
+    with connect() as conn:
+        report = health.venue_health(conn, list(VENUE_META))
+        runs = conn.execute(
+            "SELECT venue_id, started_at, ok, shows_found, error"
+            " FROM poll_runs ORDER BY started_at DESC LIMIT 40"
+        ).fetchall()
+    return render_template(
+        "status.html",
+        report=report,
+        runs=[dict(r) for r in runs],
+        venue_meta=VENUE_META,
+        stats=_stats(),
+    )
 
 
 @app.route("/calendar")

@@ -72,6 +72,14 @@
   .mark.hide { font-size: 14px; }
   .entry.is-hidden { opacity: .45; }
 
+  .alarm {
+    border: 1px solid var(--oxblood); border-left-width: 3px;
+    padding: 11px 14px; margin: 16px 0 4px;
+    font-size: 14px; color: var(--ink);
+  }
+  .alarm strong { color: var(--oxblood); font-weight: 600; }
+  .alarm a { margin-left: 8px; font-family: var(--sans); font-size: 11.5px; }
+
   .hiddennote {
     font-family: var(--sans); font-size: 11px; color: var(--ink-3);
     margin: 14px 0 26px; letter-spacing: .03em;
@@ -159,11 +167,9 @@
       <span class="flabel">Podium</span>
       <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle</a>
       {% for vid, meta in venue_meta.items() %}
-        {% if vid != 'mge' %}
-          <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
-            {{ meta[0] }}{% if meta[1] != meta[0] %} · {{ meta[1] }}{% endif %}
-          </a>
-        {% endif %}
+        <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
+          {{ meta[0] }}{% if meta[1] != meta[0] %} · {{ meta[1] }}{% endif %}
+        </a>
       {% endfor %}
     </div>
 
@@ -200,6 +206,17 @@
       </a>
     </div>
   </div>
+
+  {% if problems %}
+    <div class="alarm">
+      <strong>Let op:</strong>
+      {% for p in problems %}
+        {{ venue_meta.get(p.venue_id, [p.venue_id])[0] }} — {{ p.message }}
+        {%- if not loop.last %} · {% endif %}
+      {% endfor %}
+      <a href="/status">status bekijken</a>
+    </div>
+  {% endif %}
 
   <p class="hiddennote">
     {{ rows | length }} getoond{% if hidden_count > 0 %}, {{ hidden_count }} verborgen

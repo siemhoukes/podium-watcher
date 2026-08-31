@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% set active = 'status' %}
+{% block title %}Podium — status{% endblock %}
+
+{% block style %}
+  h2.section {
+    font-size: 21px; font-weight: 400; margin: 0 0 14px;
+    text-transform: lowercase;
+  }
+  table.health { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+  table.health th {
+    font-family: var(--sans); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+    text-align: left; padding: 0 12px 8px 0; border-bottom: 1px solid var(--ink);
+  }
+  table.health td {
+    padding: 11px 12px 11px 0; border-bottom: 1px solid var(--rule);
+    vertical-align: top; font-size: 15px;
+  }
+  .dot {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 9px; vertical-align: baseline;
+  }
+  .dot.ok   { background: var(--green); }
+  .dot.warn { background: #b07a2a; }
+  .dot.fail { background: var(--oxblood); }
+  .vname { white-space: nowrap; }
+  .msg { color: var(--ink-2); }
+  .when {
+    font-family: var(--sans); font-size: 11.5px; color: var(--ink-3);
+    white-space: nowrap;
+  }
+
+  .runs { font-family: var(--sans); font-size: 12px; }
+  .runs td { padding: 5px 14px 5px 0; border-bottom: 1px solid var(--rule); }
+  .runs .bad { color: var(--oxblood); }
+
+  .explain {
+    font-size: 14.5px; font-style: italic; color: var(--ink-2);
+    margin: 0 0 26px; max-width: 60ch; line-height: 1.6;
+  }
+{% endblock %}
+
+{% block content %}
+  <h2 class="section">scrapers</h2>
+  <p class="explain">
+    Een kapotte scraper geeft geen foutmelding — die vindt gewoon niets, en dat
+    ziet er precies zo uit als een podium zonder programma. Daarom vergelijkt
+    deze pagina elk podium met zijn <em>eigen</em> recente aantallen: vijftien
+    rijen is normaal voor Paradox en alarmerend voor Chassé.
+  </p>
+
+  <table class="health">
+    <thead>
+      <tr><th>Podium</th><th>Bevinding</th><th>Laatste run</th></tr>
+    </thead>
+    <tbody>
+      {% for v in report %}
+        <tr>
+          <td class="vname">
+            <span class="dot {{ v.status }}"></span>
+            {{ venue_meta.get(v.venue_id, [v.venue_id])[0] }}
+          </td>
+          <td class="msg">{{ v.message }}</td>
+          <td class="when">
+            {{ v.last_run.strftime('%d-%m %H:%M') if v.last_run else '—' }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">recente runs</h2>
+  <table class="health runs">
+    <tbody>
+      {% for r in runs %}
+        <tr class="{{ 'bad' if not r.ok or not r.shows_found }}">
+          <td>{{ r.started_at[:16].replace('T', ' ') }}</td>
+          <td>{{ venue_meta.get(r.venue_id, [r.venue_id])[0] }}</td>
+          <td>{{ r.shows_found }} rijen</td>
+          <td>{{ r.error[:60] if r.error else '' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

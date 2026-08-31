@@ -50,14 +50,15 @@ Venues report at whatever depth their site allows and never pretend to more —
 `seats_free` stays `NULL` rather than being guessed, because a fabricated number
 would poison the forecast.
 
-| Venue | Agenda | Platform | Signal | Status |
+| Venue | Source | Platform | Signal | Rows |
 |---|---|---|---|---|
-| Chassé | `/programma?page=N` | Peppered | exact datetime, hall, 3-level status | **live** — 619 |
-| Tilburg | `/nl/agenda?page=N` | Ticketmatic | **exact seat counts** + real prices | **live** — 514 |
-| Parktheater | `/programma?page=N` | Peppered | exact datetime, hall, 3-level status | **live** — 319 |
-| Verkadefabriek | `/podium?page=N` | **Ticketmatic** | 4-level + real prices, seats when seated | **live** — 90 |
-| MgE | client-rendered (SEO stubs only) | Tixly | needs its XHR endpoint found | todo |
-| Paradox / 013 | server-rendered, custom markup | — | not yet parsed | todo |
+| Chassé | `/programma?page=N` | Peppered | datetime, hall, 3-level status, labelled prices | 759 |
+| Tilburg | `/nl/agenda?page=N` | Ticketmatic | **exact seat counts** + real prices | 514 |
+| Parktheater | `/programma?page=N` | Peppered | datetime, hall, 3-level status, labelled prices | 381 |
+| MgE | **`/event_feed_json/`** | Tixly | whole programme in one request, 6-level status | 224 |
+| 013 | `/programma` | — | ISO datetimes + status ribbons | 161 |
+| Verkadefabriek | `/podium?page=N` | **Ticketmatic** | 4-level + real prices, seats when seated | 90 |
+| Paradox | `/agenda/` | Stager | schema.org microdata, prices, sold-out | 15 |
 
 **Peppered is the good case — but it has two shapes, and only reading one of
 them cost us every sold-out show.** An on-sale performance is an order anchor
@@ -82,11 +83,18 @@ to run on Ticketmatic as well, and its `/agenda/koop-ticket?programId=` link
 302s to the same signed widget, so it gets graded availability and real prices
 from there instead.
 
-**MgE is the blocked case.** Its agenda renders client-side — the 264 event
-links in the HTML are hidden SEO placeholders with no dates or availability.
-`wp-json` is locked (401) and `tickets.mge.nl/nl/events/` redirects to Tixly's
-corporate site. Next step is a browser session to capture what the agenda
-actually fetches.
+**MgE was the blocked case, and the way in was not a scraper at all.** Its
+agenda renders client-side, its 264 event links are hidden SEO placeholders,
+`wp-json` answers 401, and `tickets.mge.nl/nl/events/` redirects to Tixly's
+corporate site. Listing the live page's *own loaded resources* — rather than
+guessing URLs — turned up `mge.nl/event_feed_json/`, which returns the entire
+programme in one request with datetimes, halls, per-rank prices and a six-word
+status vocabulary.
+
+Its `tickets_free` / `tickets_total` are deliberately ignored: across the whole
+feed not one record has them differ, eight sold-out concerts included. They are
+static capacity, and using them would have printed a confident "0% sold" on a
+sold-out Marillion.
 
 ## Exact seat counts — solved for Ticketmatic
 
