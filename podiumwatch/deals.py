@@ -166,7 +166,15 @@ def deal_price_cents(
     """
     rule = _rule_price_cents(venue_id, price_min_cents)
     candidates = [c for c in (rule, published_student_cents) if c]
-    return min(candidates) if candidates else None
+    fare = min(candidates) if candidates else None
+
+    # A flat "discount" fare must never exceed what anyone pays at the door.
+    # Verkadefabriek's EUR 10 student price was being quoted on genuinely free
+    # events, and on anything cheaper than EUR 10 it would overcharge you on
+    # paper and hide the show behind a price filter it should have passed.
+    if price_min_cents is not None and (fare is None or fare > price_min_cents):
+        fare = price_min_cents
+    return fare
 
 
 def deal_price_source(
