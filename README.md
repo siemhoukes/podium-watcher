@@ -107,8 +107,13 @@ podiumwatch/
     parktheater.py   Parktheater         (Peppered)
     tilburg.py       Schouwburg & Concertzaal Tilburg
     verkadefabriek.py
-run_once.py
-deploy/install.sh    systemd timer install
+  deals.py           what you actually pay, and when each window opens
+  forecast.py        will it still be gettable? bands, not fake percentages
+  web.py             read-only Flask dashboard
+templates/           paper-programme UI
+run_once.py          poll once
+run_web.py           local dev server
+deploy/              installer + nginx site
 services/            unit + timer, version-controlled
 ```
 
@@ -156,8 +161,8 @@ a CRLF `install.sh` fails with "bad interpreter".
   exposes `eventseatingplan/{code}/availability/`, but `{code}` is a hashed
   reference, not the numeric id in `shows.ticket_ref`
 - Hall capacities, so `seats_free` becomes a fraction rather than a bare count
-- Forecast model over the fill curves
-- Dashboard: next 7–14 days ranked, plus a calendar month view
+- A real forecast once the curves have history — `forecast.py` currently
+  returns a band plus an observation count, not a percentage, on purpose
 - ntfy push when a window opens; weekly email digest
 - One-tap *got it / missed it* logging, to learn whether venues cap the youth
   allocation separately from the hall
