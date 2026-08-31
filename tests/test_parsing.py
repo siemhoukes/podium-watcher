@@ -83,3 +83,25 @@ def test_euros_to_cents(text, cents):
 def test_euros_to_cents_on_nonsense():
     assert euros_to_cents(None) is None
     assert euros_to_cents("gratis") is None
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("wo 2 sep ’26", datetime(2026, 9, 2)),
+        ("wo 2 sep ’27", datetime(2027, 9, 2)),
+        ("za 13 mrt ’27", datetime(2027, 3, 13)),
+        ("13 sep '27", datetime(2027, 9, 13)),
+    ],
+)
+def test_two_digit_years(text, expected):
+    """Peppered writes '’26' as well as '2026'.
+
+    Missing the short form threw dates a whole year: 'wo 2 sep ’27' fell
+    through to year inference and came back as 2026.
+    """
+    assert parse_dutch_datetime(text, today=TODAY) == expected
+
+
+def test_four_digit_years_still_win_over_inference():
+    assert parse_dutch_datetime("13 jan 2029", today=TODAY) == datetime(2029, 1, 13)

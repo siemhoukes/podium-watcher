@@ -276,3 +276,46 @@ def test_every_show_has_a_title_and_a_start(adapter_cls, fixture):
         assert show.title
         assert show.starts_at is not None
         assert snap.state in {AVAILABLE, LIMITED, SOLD_OUT, "unknown"}
+
+
+def test_peppered_skips_cards_it_cannot_resolve_to_one_performance():
+    """Two shapes of the same problem, both previously recorded as midnight.
+
+    A start/end pair is a run of nights; "Meerdere tijdstippen" is several
+    shows in one day. Either way the card summarises performances it does not
+    list, so one row at 00:00 is both the wrong time and the wrong count --
+    26 Parktheater rows looked like real data because of it.
+    """
+    from bs4 import BeautifulSoup
+
+    def card(inner):
+        return BeautifulSoup(
+            '<li class="eventCard" data-entry-id="99">'
+            '<a class="desc" href="/programma/x"></a>'
+            '<div class="title">Test</div>' + inner + "</li>",
+            "html.parser",
+        ).select_one("li.eventCard")
+
+    multi_day = card(
+        '<div class="top-date"><span class="start">wo 2 sep ’26</span>'
+        '<span class="end">zo 13 sep ’26</span></div>'
+    )
+    multi_time = card(
+        '<div class="top-date"><span class="start">zo 27 sep ’26</span>'
+        '<span class="time">Meerdere tijdstippen</span></div>'
+    )
+    single = card(
+        '<div class="top-date"><span class="start">zo 7 mrt ’27</span>'
+        '<span class="time">- 20.00</span></div>'
+        '<div class="venue">grote zaal</div>'
+        "<a class='status-info status-uitverkocht' href='/programma/x'></a>"
+    )
+
+    assert ChasseAdapter(None)._parse_card(multi_day) == []
+    assert ChasseAdapter(None)._parse_card(multi_time) == []
+
+    resolved = ChasseAdapter(None)._parse_card(single)
+    assert len(resolved) == 1
+    show, snap = resolved[0]
+    assert show.starts_at == datetime(2027, 3, 7, 20, 0), "two-digit year and time"
+    assert snap.state == SOLD_OUT

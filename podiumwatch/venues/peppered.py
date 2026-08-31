@@ -40,10 +40,17 @@ from .base import VenueAdapter, clean, euros_to_cents, parse_dutch_datetime
 
 log = logging.getLogger(__name__)
 
+_HAS_DIGITS = re.compile(r"\d")
+
 
 def cls_norm(text: str) -> str:
-    """Collapse NBSP and runs of whitespace; the price block is full of both."""
-    return re.sub(r"\s+", " ", text.replace(" ", " ")).strip()
+    r"""Collapse whitespace, NBSP included.
+
+    Peppered's price block is full of &nbsp;. Python's \s matches those, so
+    one substitution is enough.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
 
 # Peppered's per-performance sale states.
 STATUS_MAP = {
@@ -223,6 +230,18 @@ class PepperedAdapter(VenueAdapter):
         time_el = top.select_one(".time")
         date_text = clean(start_el.get_text()) if start_el else None
         time_text = clean(time_el.get_text()) if time_el else None
+
+        # "Meerdere tijdstippen" is the same problem in a different shape:
+        # several performances that day, summarised, with no way to tell them
+        # apart. Recorded as one row it landed at midnight -- wrong time and
+        # wrong count. 26 Parktheater rows looked like real data because of it.
+        if not time_text or not _HAS_DIGITS.search(time_text):
+            log.debug(
+                "%s: skipping card %s with unresolvable time %r",
+                self.venue_id, production_id, time_text,
+            )
+            return None
+
         starts_at = parse_dutch_datetime(date_text or "", time_text)
         if starts_at is None:
             return None
