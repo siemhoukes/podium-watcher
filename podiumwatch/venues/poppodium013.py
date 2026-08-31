@@ -22,7 +22,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
-from .base import VenueAdapter, clean
+from .base import VenueAdapter, clean, euros_to_cents
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,37 @@ class Poppodium013Adapter(VenueAdapter):
     name = "013"
     city = "Tilburg"
     travel_minutes = 5  # on foot
+
+    # The listing carries no price at all, but detail pages do and prices do
+    # not change, so each show is fetched once and never again.
+    enrich_budget = 30
+
+    def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        if snap.price_min_cents is not None:
+            return False
+        if cached_price is not None:
+            snap.price_min_cents, snap.price_max_cents = cached_price
+            return False
+        price = self.fetch_detail_price(show)
+        if price is not None:
+            snap.price_min_cents = snap.price_max_cents = price
+        return True
+
+    def fetch_detail_price(self, show: Show) -> int | None:
+        """The 'Entree' figure, which already includes service costs."""
+        html = self.fetcher.get_text(show.url)
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.select_one(".price_table")
+        if table is None:
+            return None
+        amounts = [
+            cents
+            for cents in (euros_to_cents(b.get_text()) for b in table.select("b"))
+            if cents
+        ]
+        return min(amounts) if amounts else None
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
         html = self.fetcher.get_text(PROGRAMMA)
