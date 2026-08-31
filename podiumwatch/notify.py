@@ -17,15 +17,16 @@ nobody has open cannot notice anything.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 import requests
 
-from . import deals
+from . import categories, deals
 
 log = logging.getLogger(__name__)
 
@@ -212,3 +213,125 @@ def send_window_alerts(conn, commit=True, now: datetime | None = None) -> int:
     if commit and sent:
         conn.commit()
     return sent
+
+
+# --------------------------------------------------------------------------
+# Weekly digest
+# --------------------------------------------------------------------------
+
+DIGEST_DAYS = 10
+
+
+def digest_rows(conn, days: int = DIGEST_DAYS, now: datetime | None = None) -> list[dict]:
+    """The cheap, gettable, nearby things worth planning around.
+
+    Deliberately not everything: a digest listing 300 performances is a digest
+    nobody reads. Sold-out, externally-sold and hidden productions are out, and
+    what is left is ordered by what you would actually pay.
+    """
+    now = now or datetime.now()
+    horizon = now + timedelta(days=days)
+
+    rows = conn.execute(
+        """
+        SELECT s.id, s.venue_id, s.external_id, s.title, s.subtitle,
+               s.starts_at, s.url, s.hall, s.ticket_url, s.tags
+        FROM shows s
+        WHERE s.starts_at IS NOT NULL AND s.starts_at >= ? AND s.starts_at < ?
+        ORDER BY s.starts_at
+        """,
+        (now.isoformat(), horizon.isoformat()),
+    ).fetchall()
+
+    hidden = {
+        (r["venue_id"], r["title"])
+        for r in conn.execute("SELECT venue_id, title FROM hidden_productions")
+    }
+    starred = {
+        (r["venue_id"], r["external_id"])
+        for r in conn.execute("SELECT venue_id, external_id FROM starred")
+    }
+
+    out = []
+    for row in rows:
+        if (row["venue_id"], row["title"]) in hidden:
+            continue
+        if not deals.deal_applies(row["venue_id"], row["ticket_url"]):
+            continue
+        tags = json.loads(row["tags"]) if row["tags"] else []
+        # Same filters as the dashboard. Without them the digest led with four
+        # free showings of a children's play and two screenings of Minoes,
+        # because sorting by price alone rewards exactly the wrong things.
+        if categories.has_tag(tags, categories.ALWAYS_HIDDEN | categories.FILM):
+            continue
+        latest = conn.execute(
+            "SELECT state, seats_free, seats_total, price_min_cents,"
+            " price_student_cents FROM snapshots WHERE show_id = ?"
+            " ORDER BY observed_at DESC LIMIT 1",
+            (row["id"],),
+        ).fetchone()
+        if not latest or latest["state"] == "sold_out":
+            continue
+
+        fare = deals.deal_price_cents(
+            row["venue_id"], latest["price_min_cents"], latest["price_student_cents"]
+        )
+        # A free listing is usually an open day or a talk, not a night out.
+        if fare == 0:
+            continue
+        item = dict(row)
+        item["starts_at"] = datetime.fromisoformat(row["starts_at"])
+        item["fare"] = fare
+        item["starred"] = (row["venue_id"], row["external_id"]) in starred
+        item["snapshot"] = dict(latest)
+        out.append(item)
+
+    # Starred first, then cheapest; an unknown fare sorts last rather than
+    # pretending to be free.
+    out.sort(key=lambda i: (
+        not i["starred"],
+        i["fare"] if i["fare"] is not None else 10**9,
+        i["starts_at"],
+    ))
+    return out
+
+
+def format_digest(rows: list[dict], days: int = DIGEST_DAYS) -> tuple[str, str]:
+    if not rows:
+        return (
+            f"Podium — niets gevonden voor de komende {days} dagen",
+            "Geen voorstellingen die aan de filters voldoen.",
+        )
+
+    lines = [
+        f"De komende {days} dagen, gesorteerd op wat je zou betalen.",
+        "",
+    ]
+    for item in rows[:15]:
+        fare = (
+            f"€{item['fare'] / 100:.2f}".replace(".", ",")
+            if item["fare"] is not None else "prijs onbekend"
+        )
+        mark = "★ " if item["starred"] else "  "
+        lines.append(
+            f"{mark}{item['starts_at']:%a %d-%m %H:%M}  {fare:>14}  {item['title']}"
+        )
+        snap = item["snapshot"]
+        free, total = snap.get("seats_free"), snap.get("seats_total")
+        detail = item["url"] or ""
+        if free is not None and total:
+            pct = 100 * (1 - free / total)
+            lines.append(f"      nog {free} van {total} plaatsen ({pct:.0f}% verkocht)")
+        lines.append(f"      {detail}")
+        lines.append("")
+
+    if len(rows) > 15:
+        lines.append(f"(+{len(rows) - 15} meer op https://podium.siem.codes)")
+
+    subject = f"Podium — {len(rows)} voorstellingen komende {days} dagen"
+    return subject, "\n".join(lines)
+
+
+def send_digest(conn, days: int = DIGEST_DAYS) -> bool:
+    subject, body = format_digest(digest_rows(conn, days=days), days=days)
+    return send_mail(subject, body)

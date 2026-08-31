@@ -228,6 +228,12 @@ tool becomes one you mute.
 open across four polls sends once. Sold-out shows are skipped: the window
 opened, but there is nothing to buy.
 
+A **weekly digest** goes out over SMTP on Monday mornings, far enough ahead
+to plan a weekend around. It applies the same category filters as the
+dashboard, which it did not at first: sorting by price alone put four free
+showings of a children's play and two screenings of Minoes at the top. Those
+filters now live in `categories.py` so the two surfaces cannot drift again.
+
 Off until configured. Put an unguessable topic in
 `/etc/podium-watcher/podium.env` (an ntfy topic is public to anyone who knows
 the name):

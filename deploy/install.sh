@@ -75,6 +75,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now podium-poller.timer
+systemctl enable --now podium-digest.timer
 systemctl enable --now podium-web.service
 
 echo

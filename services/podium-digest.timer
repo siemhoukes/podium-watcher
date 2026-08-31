@@ -1,0 +1,11 @@
+[Unit]
+Description=Podium Watcher — weekly digest
+
+[Timer]
+# Monday morning: far enough ahead to plan the coming weekend around.
+OnCalendar=Mon *-*-* 08:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

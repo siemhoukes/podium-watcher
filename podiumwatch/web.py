@@ -16,7 +16,7 @@ from urllib.parse import quote_plus
 
 from flask import Flask, redirect, render_template, request
 
-from . import deals, forecast, health
+from . import categories, deals, forecast, health
 from .models import AVAILABLE, LIMITED, SOLD_OUT
 
 DB_PATH = Path(
@@ -175,15 +175,11 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
     return out
 
 
-# Categories hidden by default. Kids' theatre is the big one -- it is a
-# sizeable share of every venue's programme and none of it is for you.
-KIDS_TAGS = {"jeugd & familie", "kinderen"}
-FILM_TAGS = {"movie", "film"}
-COURSE_TAGS = {"cursus", "club"}
-
-
-def _has_tag(tags: list[str], wanted: set[str]) -> bool:
-    return any(t.strip().lower() in wanted for t in tags)
+# Shared with the digest so the two surfaces cannot drift apart.
+KIDS_TAGS = categories.KIDS
+FILM_TAGS = categories.FILM
+COURSE_TAGS = categories.COURSES
+_has_tag = categories.has_tag
 
 
 def _rank(look, fare: int | None, travel: int, days_away: float,

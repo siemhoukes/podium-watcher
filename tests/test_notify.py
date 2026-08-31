@@ -100,3 +100,66 @@ def test_nothing_is_sent_without_a_configured_topic(conn, monkeypatch):
     assert notify.send_window_alerts(conn, now=NOW) == 0
     # And nothing was recorded as sent, so it can still fire once configured.
     assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 0
+
+
+# --------------------------------------------------------------------------
+# Weekly digest
+# --------------------------------------------------------------------------
+
+def add_tagged(conn, ext, title, tags, price, days=2, state="available"):
+    starts = NOW + timedelta(days=days)
+    cur = conn.execute(
+        "INSERT INTO shows (venue_id, external_id, title, starts_at, url, tags,"
+        " ticket_url, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("verkadefabriek", ext, title, starts.isoformat(), "https://e.test/x",
+         tags, None, NOW.isoformat(), NOW.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO snapshots (show_id, observed_at, state, price_min_cents)"
+        " VALUES (?,?,?,?)",
+        (cur.lastrowid, NOW.isoformat(), state, price),
+    )
+    conn.commit()
+
+
+def test_digest_hides_what_the_dashboard_hides(conn):
+    """It used to lead with free children's shows and Minoes screenings.
+
+    Sorting by price alone rewards exactly the wrong things, so the digest
+    applies the same category filters as the list.
+    """
+    add_tagged(conn, "kid", "Kinderding", '["Kinderen"]', 500)
+    add_tagged(conn, "film", "Filmpje", '["Film"]', 800)
+    add_tagged(conn, "real", "Echte voorstelling", '["Theater"]', 2600)
+
+    titles = [r["title"] for r in notify.digest_rows(conn, now=NOW)]
+    assert titles == ["Echte voorstelling"]
+
+
+def test_digest_skips_free_listings(conn):
+    """A EUR 0 listing is an open day or a talk, not a night out."""
+    add_tagged(conn, "free", "Gratis ding", '["Theater"]', 0)
+    assert notify.digest_rows(conn, now=NOW) == []
+
+
+def test_digest_puts_starred_first(conn):
+    add_tagged(conn, "cheap", "Goedkoop", '["Theater"]', 1000)
+    add_tagged(conn, "fav", "Favoriet", '["Theater"]', 4000)
+    conn.execute(
+        "INSERT INTO starred (venue_id, external_id, created_at) VALUES (?,?,?)",
+        ("verkadefabriek", "fav", NOW.isoformat()),
+    )
+    conn.commit()
+    titles = [r["title"] for r in notify.digest_rows(conn, now=NOW)]
+    assert titles[0] == "Favoriet"
+
+
+def test_digest_skips_sold_out(conn):
+    add_tagged(conn, "gone", "Uitverkocht", '["Theater"]', 2000, state="sold_out")
+    assert notify.digest_rows(conn, now=NOW) == []
+
+
+def test_an_empty_digest_still_formats(conn):
+    subject, body = notify.format_digest([])
+    assert "niets gevonden" in subject
+    assert body
