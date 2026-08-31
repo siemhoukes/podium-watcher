@@ -187,6 +187,25 @@ Sold-out performances are kept in the database — they are the most informative
 thing that can happen to a show — and hidden from the list, since there is no
 point offering a ticket that does not exist.
 
+## Your own marks
+
+Stars and hides live in the database, not in browser storage, because the
+poller will need them: the planned ntfy alert fires when a *starred* show's
+discount window opens, and a browser cannot tell it that.
+
+- **Starring is per performance** — you attend one night, not a run.
+- **Hiding is per production** — a four-night run would otherwise need four
+  clicks to go away. A starred performance stays visible even if its
+  production is hidden.
+- Both are keyed on `(venue_id, external_id)` / `(venue_id, title)` rather
+  than `shows.id`. That internal id changes whenever a venue is cleared and
+  re-collected, which has already happened twice, and would have silently
+  wiped every favourite.
+
+The toggles are plain POST forms, so they work without JavaScript and the
+state survives a reload. The dashboard's read path stays read-only; only these
+use a separate writable connection.
+
 ## Running it
 
 ```bash

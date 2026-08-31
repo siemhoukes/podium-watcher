@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request
 
 from . import deals, forecast
 from .models import AVAILABLE, LIMITED, SOLD_OUT
@@ -42,9 +42,40 @@ app = Flask(
 
 
 def connect() -> sqlite3.Connection:
+    """Read-only, so rendering a page can never disturb the poller."""
     conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def connect_rw() -> sqlite3.Connection:
+    """Writable, used only for your own stars and hides.
+
+    Deliberately a separate connection from the read path: the dashboard still
+    cannot touch shows or snapshots, and WAL lets this coexist with a poll in
+    progress.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def _flags(conn) -> tuple[set, set]:
+    """-> (starred performance keys, hidden production keys)."""
+    try:
+        starred = {
+            (r["venue_id"], r["external_id"])
+            for r in conn.execute("SELECT venue_id, external_id FROM starred")
+        }
+        hidden = {
+            (r["venue_id"], r["title"])
+            for r in conn.execute("SELECT venue_id, title FROM hidden_productions")
+        }
+    except sqlite3.OperationalError:
+        # Tables arrive with the next poll on a database made before this.
+        return set(), set()
+    return starred, hidden
 
 
 def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
@@ -67,6 +98,8 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         ids,
     ):
         snaps[row["show_id"]].append(dict(row))
+
+    starred, hidden = _flags(conn)
 
     now = datetime.now()
     out = []
@@ -107,6 +140,9 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "tags": json.loads(s["tags"]) if s["tags"] else [],
                 "starts_at": starts_at,
                 "venue_id": s["venue_id"],
+                "external_id": s["external_id"],
+                "starred": (s["venue_id"], s["external_id"]) in starred,
+                "hidden": (s["venue_id"], s["title"]) in hidden,
                 "venue": name,
                 "city": city,
                 "travel": travel,
@@ -178,6 +214,8 @@ def index():
     venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
     max_price = request.args.get("max", type=int)  # in cents
     hide_free = request.args.get("free", "0") != "1"
+    only_starred = request.args.get("fav", "0") == "1"
+    show_hidden = request.args.get("verborgen", "0") == "1"
 
     now = datetime.now()
     with connect() as conn:
@@ -202,6 +240,11 @@ def index():
         rows = [r for r in rows if r["fare"] is None or r["fare"] <= max_price]
     if hide_free:
         rows = [r for r in rows if r["fare"] is None or r["fare"] > 0]
+    if only_starred:
+        rows = [r for r in rows if r["starred"]]
+    if not show_hidden:
+        # A starred performance stays visible even if you hid its production.
+        rows = [r for r in rows if not r["hidden"] or r["starred"]]
 
     if sort == "date":
         rows.sort(key=lambda r: r["starts_at"])
@@ -217,12 +260,68 @@ def index():
         venues=venues,
         max_price=max_price,
         hide_free=hide_free,
+        only_starred=only_starred,
+        show_hidden=show_hidden,
+        starred_count=sum(1 for r in rows if r["starred"]),
         price_steps=PRICE_STEPS,
         venue_meta=VENUE_META,
         hidden_count=total_found - len(rows),
         stats=_stats(),
         now=now,
     )
+
+
+def _back():
+    """Return to the page the click came from, filters intact."""
+    target = request.form.get("next") or request.referrer or "/"
+    # Only ever bounce within this site.
+    return redirect(target if target.startswith("/") else "/")
+
+
+@app.post("/star")
+def toggle_star():
+    venue_id = request.form.get("venue_id", "")
+    external_id = request.form.get("external_id", "")
+    if venue_id and external_id:
+        conn = connect_rw()
+        try:
+            cur = conn.execute(
+                "DELETE FROM starred WHERE venue_id=? AND external_id=?",
+                (venue_id, external_id),
+            )
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO starred (venue_id, external_id, created_at)"
+                    " VALUES (?,?,?)",
+                    (venue_id, external_id, datetime.now().isoformat(timespec="seconds")),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    return _back()
+
+
+@app.post("/hide")
+def toggle_hide():
+    venue_id = request.form.get("venue_id", "")
+    title = request.form.get("title", "")
+    if venue_id and title:
+        conn = connect_rw()
+        try:
+            cur = conn.execute(
+                "DELETE FROM hidden_productions WHERE venue_id=? AND title=?",
+                (venue_id, title),
+            )
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO hidden_productions (venue_id, title, created_at)"
+                    " VALUES (?,?,?)",
+                    (venue_id, title, datetime.now().isoformat(timespec="seconds")),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    return _back()
 
 
 @app.route("/calendar")

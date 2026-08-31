@@ -37,6 +37,41 @@
   .chip.plain { border-color: transparent; padding: 3px 0; }
   .chip.plain.on { background: transparent; color: var(--oxblood); border-bottom: 1px solid var(--oxblood); }
 
+  /* An explicit on/off switch: the state is the point, not the label. */
+  .switch {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--sans); font-size: 11.5px; letter-spacing: .06em;
+    text-decoration: none; color: var(--ink-2);
+  }
+  .switch:hover { color: var(--ink); }
+  .switch .track {
+    width: 26px; height: 14px; border: 1px solid var(--ink-3);
+    border-radius: 8px; position: relative; flex: 0 0 auto;
+    background: transparent; transition: background .12s, border-color .12s;
+  }
+  .switch .track i {
+    position: absolute; top: 2px; left: 2px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ink-3); transition: left .12s, background .12s;
+  }
+  .switch.on .track { background: var(--oxblood); border-color: var(--oxblood); }
+  .switch.on .track i { left: 14px; background: var(--paper); }
+  .switch.on { color: var(--oxblood); }
+
+  /* Row actions */
+  .marks { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 5px; }
+  .mark {
+    background: none; border: none; padding: 2px; cursor: pointer;
+    color: var(--ink-3); font-size: 18px; line-height: 1;
+    font-family: var(--serif); opacity: .55; transition: opacity .12s, color .12s;
+  }
+  .entry:hover .mark { opacity: 1; }
+  .mark:hover { color: var(--oxblood); opacity: 1; }
+  .mark.on { opacity: 1; }
+  .mark.on { color: var(--oxblood); }
+  .mark.hide { font-size: 14px; }
+  .entry.is-hidden { opacity: .45; }
+
   .hiddennote {
     font-family: var(--sans); font-size: 11px; color: var(--ink-3);
     margin: 14px 0 26px; letter-spacing: .03em;
@@ -45,7 +80,7 @@
   /* ---- entries ------------------------------------------------------- */
   .entry {
     display: grid;
-    grid-template-columns: 88px 1fr 138px;
+    grid-template-columns: 26px 82px 1fr 138px;
     gap: 0 26px;
     padding: 20px 0 21px;
     border-bottom: 1px solid var(--rule);
@@ -109,6 +144,7 @@
 
   @media (max-width: 660px) {
     .entry { grid-template-columns: 1fr; gap: 4px; padding: 18px 0; }
+    .marks { flex-direction: row; padding-top: 0; justify-content: flex-start; }
     .when { display: flex; gap: 10px; align-items: baseline; padding-top: 0; }
     .when .t { margin-top: 0; }
     .price { text-align: left; margin-top: 10px; }
@@ -139,8 +175,18 @@
           t/m {{ step | euro }}
         </a>
       {% endfor %}
-      <a class="chip plain {{ 'on' if not hide_free }}" href="{{ qs(free='0' if hide_free else '1') }}">
-        {{ 'toon gratis' if hide_free else 'verberg gratis' }}
+      <a class="switch {{ 'on' if not hide_free }}" href="{{ qs(free='0' if hide_free else '1') }}">
+        <span class="track"><i></i></span> gratis tonen
+      </a>
+    </div>
+
+    <div class="frow">
+      <span class="flabel">Eigen</span>
+      <a class="switch {{ 'on' if only_starred }}" href="{{ qs(fav=None if only_starred else '1') }}">
+        <span class="track"><i></i></span> alleen favorieten
+      </a>
+      <a class="switch {{ 'on' if show_hidden }}" href="{{ qs(verborgen=None if show_hidden else '1') }}">
+        <span class="track"><i></i></span> verborgen tonen
       </a>
     </div>
 
@@ -149,8 +195,8 @@
       {% for d in [7, 14, 30, 60] %}
         <a class="chip plain {{ 'on' if days == d }}" href="{{ qs(days=d) }}">{{ d }} dagen</a>
       {% endfor %}
-      <a class="chip plain {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
-        {{ 'toon film' if hide_film else 'verberg film' }}
+      <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
+        <span class="track"><i></i></span> film tonen
       </a>
     </div>
   </div>
@@ -167,7 +213,27 @@
   {% endif %}
 
   {% for r in rows %}
-    <article class="entry">
+    <article class="entry {{ 'is-hidden' if r.hidden }}">
+      <div class="marks">
+        {# Plain POST forms: no JavaScript, and the state survives a reload
+           because it lives in the database, not the browser. #}
+        <form method="post" action="/star">
+          <input type="hidden" name="venue_id" value="{{ r.venue_id }}">
+          <input type="hidden" name="external_id" value="{{ r.external_id }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="mark {{ 'on' if r.starred }}" type="submit"
+                  title="{{ 'Uit favorieten halen' if r.starred else 'Toevoegen aan favorieten' }}"
+                  aria-label="favoriet">{{ '★' if r.starred else '☆' }}</button>
+        </form>
+        <form method="post" action="/hide">
+          <input type="hidden" name="venue_id" value="{{ r.venue_id }}">
+          <input type="hidden" name="title" value="{{ r.title }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="mark hide {{ 'on' if r.hidden }}" type="submit"
+                  title="{{ 'Weer tonen' if r.hidden else 'Verberg deze voorstelling (alle data)' }}"
+                  aria-label="verbergen">{{ '↺' if r.hidden else '✕' }}</button>
+        </form>
+      </div>
       <div class="when">
         <div class="d">{{ r.starts_at | nl_date }}</div>
         <div class="t">{{ r.starts_at.strftime('%H:%M') }}</div>

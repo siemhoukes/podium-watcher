@@ -49,6 +49,26 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_show_time
     ON snapshots (show_id, observed_at);
 CREATE INDEX IF NOT EXISTS idx_shows_starts_at ON shows (starts_at);
 
+-- Your own marks on the programme. Keyed on (venue_id, external_id) rather
+-- than shows.id on purpose: the internal row id changes whenever a venue is
+-- cleared and re-collected, which has already happened twice, and that would
+-- have silently wiped every favourite.
+CREATE TABLE IF NOT EXISTS starred (
+    venue_id    TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (venue_id, external_id)
+);
+
+-- Hiding is per *production*, not per performance: a run of four nights would
+-- otherwise need four clicks to make go away.
+CREATE TABLE IF NOT EXISTS hidden_productions (
+    venue_id   TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (venue_id, title)
+);
+
 -- Poll bookkeeping, so a silently-broken adapter is visible rather than
 -- looking like a venue with nothing on.
 CREATE TABLE IF NOT EXISTS poll_runs (
