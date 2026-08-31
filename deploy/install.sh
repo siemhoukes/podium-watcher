@@ -21,6 +21,13 @@ sudo -u "$RUN_USER" "$PROJECT_DIR/.venv/bin/pip" install -r "$PROJECT_DIR/requir
 mkdir -p "$PROJECT_DIR/data"
 chown -R "$RUN_USER":"$RUN_USER" "$PROJECT_DIR/data"
 
+# Notification settings live outside the repo so secrets never get committed.
+mkdir -p /etc/podium-watcher
+if [[ ! -f /etc/podium-watcher/podium.env ]]; then
+    install -m 600 -o "$RUN_USER" -g "$RUN_USER"         "$PROJECT_DIR/.env.example" /etc/podium-watcher/podium.env
+    echo "Created /etc/podium-watcher/podium.env -- edit it to enable alerts."
+fi
+
 cat > /etc/systemd/system/podium-poller.service <<EOF
 [Unit]
 Description=Podium Watcher - poll venue agendas
@@ -30,6 +37,7 @@ Wants=network-online.target
 Type=oneshot
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
+EnvironmentFile=-/etc/podium-watcher/podium.env
 ExecStart=$PROJECT_DIR/.venv/bin/python -u run_once.py
 TimeoutStartSec=1800
 NoNewPrivileges=true

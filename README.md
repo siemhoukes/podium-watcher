@@ -214,6 +214,28 @@ The toggles are plain POST forms, so they work without JavaScript and the
 state survives a reload. The dashboard's read path stays read-only; only these
 use a separate writable connection.
 
+## Alerts
+
+The dashboard answers *what is worth planning around*. The push answers *you
+can buy it now*, which is true for a few hours and cannot be noticed on a page
+you are not looking at — so alerting runs in the poller, not the web app.
+
+Only **starred** performances trigger a push. A notification every time a
+Tilburg show entered its 48 hours would be several a day, which is how a quiet
+tool becomes one you mute.
+
+`alerts_sent` records each (performance, kind) pair, so a window that stays
+open across four polls sends once. Sold-out shows are skipped: the window
+opened, but there is nothing to buy.
+
+Off until configured. Put an unguessable topic in
+`/etc/podium-watcher/podium.env` (an ntfy topic is public to anyone who knows
+the name):
+
+```bash
+PODIUM_NTFY_TOPIC=https://ntfy.sh/podium-<something-random>
+```
+
 ## Tests
 
 ```bash

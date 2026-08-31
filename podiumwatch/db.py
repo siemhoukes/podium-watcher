@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS hidden_productions (
     PRIMARY KEY (venue_id, title)
 );
 
+-- One row per notification actually delivered, so a window that stays open
+-- across four polls a day produces one push rather than four.
+CREATE TABLE IF NOT EXISTS alerts_sent (
+    venue_id    TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    sent_at     TEXT NOT NULL,
+    PRIMARY KEY (venue_id, external_id, kind)
+);
+
 -- Poll bookkeeping, so a silently-broken adapter is visible rather than
 -- looking like a venue with nothing on.
 CREATE TABLE IF NOT EXISTS poll_runs (

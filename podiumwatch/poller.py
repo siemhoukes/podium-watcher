@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from . import notify
 from .db import Database
 from .http import Fetcher
 from .models import Snapshot, Show
@@ -96,6 +97,13 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             log.info(
                 "%s: %s shows, %s changed", adapter.venue_id, len(pairs), changes
             )
+        # Alerting lives here, not in the dashboard: a page nobody has open
+        # cannot notice that a window just opened.
+        try:
+            summary["alerts"] = notify.send_window_alerts(db.conn)
+        except Exception:
+            log.exception("alerting failed")
+            summary["alerts"] = 0
     finally:
         db.commit()
         summary["totals"] = db.stats()
