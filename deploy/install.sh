@@ -42,11 +42,43 @@ EOF
 install -m 644 "$PROJECT_DIR/services/podium-poller.timer" \
     /etc/systemd/system/podium-poller.timer
 
+cat > /etc/systemd/system/podium-web.service <<EOF
+[Unit]
+Description=Podium Watcher - dashboard
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5011 \\
+    --access-logfile - --error-logfile - podiumwatch.web:app
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectHome=read-only
+# The dashboard only reads, but sqlite still wants to touch the WAL files.
+ReadWritePaths=$PROJECT_DIR/data
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
 systemctl enable --now podium-poller.timer
+systemctl enable --now podium-web.service
 
 echo
-echo "Installed. The timer runs at 06:00, 12:00, 18:00 and 22:00."
+echo "Installed."
+echo "  timer  : 06:00, 12:00, 18:00, 22:00"
+echo "  web    : http://127.0.0.1:5011 (nginx fronts it at podium.siem.codes)"
+echo
 echo "  systemctl list-timers podium-poller.timer --no-pager"
 echo "  sudo systemctl start podium-poller.service   # collect right now"
 echo "  journalctl -u podium-poller -n 50 --no-pager"
+echo "  journalctl -u podium-web -n 50 --no-pager"
+echo
+echo "nginx (once): sudo cp deploy/podium-nginx.conf /etc/nginx/sites-available/podium"
+echo "              sudo ln -s ../sites-available/podium /etc/nginx/sites-enabled/podium"
+echo "              sudo nginx -t && sudo systemctl reload nginx"

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Podium{% endblock %}</title>
+<style>
+  :root {
+    --paper:   #f6f1e7;
+    --paper-2: #efe8da;
+    --ink:     #1c1a17;
+    --ink-2:   #4c463b;
+    --ink-3:   #8b8271;
+    --rule:    #ded4c0;
+    --oxblood: #7d2b2b;
+    --green:   #3d5f45;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+             Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 28px 90px; }
+
+  /* ---- masthead: the programme's cover line ------------------------- */
+  header.masthead { padding-top: 54px; }
+  .rule-top, .rule-bot { border-top: 1px solid var(--ink); }
+  .rule-bot { margin-bottom: 30px; }
+
+  .mast-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 20px; padding: 12px 0 13px;
+  }
+  .brand {
+    font-family: var(--serif);
+    font-size: 27px;
+    letter-spacing: .34em;
+    text-transform: uppercase;
+    font-weight: 400;
+    margin: 0;
+    text-indent: .34em;
+  }
+  .mast-meta {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: right;
+  }
+
+  nav.tabs {
+    display: flex; gap: 26px; flex-wrap: wrap; align-items: baseline;
+    padding: 14px 0 13px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--sans);
+  }
+  nav.tabs a {
+    text-decoration: none;
+    color: var(--ink-3);
+    font-size: 11.5px;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+  }
+  nav.tabs a:hover { color: var(--ink); }
+  nav.tabs a.on { color: var(--oxblood); }
+  nav.tabs .spacer { margin-left: auto; }
+
+  /* ---- colophon ------------------------------------------------------ */
+  .colophon {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex; flex-wrap: wrap; gap: 4px 20px;
+    padding: 11px 0 0;
+  }
+  .colophon b { color: var(--ink-2); font-weight: 600; }
+
+  footer.foot {
+    margin-top: 54px; padding-top: 18px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-3);
+    font-size: 13.5px;
+    line-height: 1.6;
+    font-style: italic;
+  }
+
+  /* ---- availability markers ------------------------------------------ */
+  .band {
+    font-family: var(--sans);
+    font-size: 11.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+  .band-likely  { color: var(--green); }
+  .band-tight   { color: var(--oxblood); }
+  .band-unknown { color: var(--ink-3); }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px 64px; }
+    header.masthead { padding-top: 32px; }
+    .brand { font-size: 20px; letter-spacing: .26em; text-indent: .26em; }
+    .mast-row { flex-direction: column; gap: 6px; }
+    .mast-meta { text-align: left; }
+  }
+  {% block style %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div class="rule-top"></div>
+    <div class="mast-row">
+      <h1 class="brand">Podium</h1>
+      <div class="mast-meta">
+        Last-minute podiumkorting<br>rond Tilburg
+      </div>
+    </div>
+    <nav class="tabs">
+      <a href="/" class="{{ 'on' if active == 'list' }}">Komende voorstellingen</a>
+      <a href="/calendar" class="{{ 'on' if active == 'calendar' }}">Kalender</a>
+      <span class="spacer"></span>
+      {% block navextra %}{% endblock %}
+    </nav>
+    <div class="rule-bot"></div>
+  </header>
+
+  {% block content %}{% endblock %}
+
+  <div class="colophon">
+    <span><b>{{ stats.shows }}</b> voorstellingen</span>
+    <span><b>{{ stats.venues }}</b> podia</span>
+    <span><b>{{ stats.snapshots }}</b> waarnemingen</span>
+    {% if stats.last_poll %}
+      <span>laatste check <b>{{ stats.last_poll.strftime('%d-%m %H:%M') }}</b></span>
+    {% endif %}
+  </div>
+
+  <footer class="foot">
+    Kortingen gelden op vertoon van een studentenkaart of ID. Prijzen en
+    beschikbaarheid komen van de podia zelf en kunnen afwijken — controleer
+    altijd bij het podium voordat je gaat.
+  </footer>
+</div>
+</body>
+</html>

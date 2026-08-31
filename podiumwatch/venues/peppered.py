@@ -146,19 +146,29 @@ class PepperedAdapter(VenueAdapter):
             ),
         )
 
-    @staticmethod
-    def _prices(text: str | None) -> tuple[int | None, int | None]:
+    # Below this, a figure in the price range is a placeholder rather than a
+    # seat anyone buys.
+    MIN_PLAUSIBLE_CENTS = 500
+
+    @classmethod
+    def _prices(cls, text: str | None) -> tuple[int | None, int | None]:
         """'€ 10,00 – € 13,00' -> (1000, 1300). Single price -> (p, p).
 
-        Peppered renders a '€ 0,00' floor on productions covered by a pass.
-        Nobody pays that, and letting it become the minimum would make every
-        such show look like the best deal in the region, so zeros are dropped
-        before taking the range.
+        Peppered renders a placeholder floor on most productions -- '€ 0,00'
+        at Parktheater and a flat '€ 1,00' on 271 of Chasse's 514 rows. Neither
+        is purchasable, and both wreck a percentage deal: half of Chasse's
+        '€ 1,00 - € 52,00' reads as a 50-cent ticket to Piaf. Anything under
+        MIN_PLAUSIBLE_CENTS is therefore dropped before taking the range, so
+        the base price reflects seats that actually exist.
         """
         if not text:
             return None, None
         nums = re.findall(r"\d+(?:[.,]\d{1,2})?", text)
-        cents = [c for c in (euros_to_cents(n) for n in nums) if c]
+        cents = [
+            c
+            for c in (euros_to_cents(n) for n in nums)
+            if c and c >= cls.MIN_PLAUSIBLE_CENTS
+        ]
         if not cents:
             return None, None
         return min(cents), max(cents)

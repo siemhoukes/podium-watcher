@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% set active = 'calendar' %}
+{% block title %}Podium — {{ month_name }} {{ year }}{% endblock %}
+
+{% block style %}
+  .calhead {
+    display: flex; align-items: baseline; gap: 22px; margin-bottom: 22px;
+  }
+  .calhead h2 {
+    font-size: 25px; margin: 0; font-weight: 400;
+    text-transform: lowercase; letter-spacing: .01em;
+  }
+  .calhead a {
+    color: var(--ink-3); text-decoration: none;
+    font-family: var(--sans); font-size: 11.5px;
+    letter-spacing: .13em; text-transform: uppercase;
+  }
+  .calhead a:hover { color: var(--oxblood); }
+
+  table.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.cal th {
+    font-family: var(--sans); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3);
+    font-weight: 500; padding: 0 0 9px; text-align: left;
+  }
+  table.cal td {
+    border: 1px solid var(--rule);
+    vertical-align: top; height: 108px; padding: 6px 7px;
+    background: transparent;
+  }
+  table.cal td.blank { border-color: transparent; }
+  table.cal td.today { background: var(--paper-2); border-color: var(--ink-3); }
+
+  .daynum {
+    font-family: var(--sans); font-size: 11px;
+    color: var(--ink-3); margin-bottom: 5px;
+  }
+  td.today .daynum { color: var(--oxblood); font-weight: 600; }
+
+  .chip {
+    display: block; text-decoration: none;
+    font-size: 13px; line-height: 1.25;
+    padding: 2px 0 3px 7px; margin-bottom: 5px;
+    border-left: 2px solid var(--ink-3);
+    color: var(--ink);
+    overflow: hidden;
+  }
+  .chip:hover { border-left-color: var(--oxblood); }
+  .chip .name {
+    display: block; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chip.likely { border-left-color: var(--green); }
+  .chip.tight  { border-left-color: var(--oxblood); }
+  .chip .fare {
+    font-family: var(--sans); font-size: 10.5px; color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+  .more {
+    font-family: var(--sans); font-size: 10.5px;
+    color: var(--ink-3); padding-left: 7px;
+  }
+
+  .legend {
+    margin-top: 22px; display: flex; gap: 22px; flex-wrap: wrap;
+    font-family: var(--sans); font-size: 11px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .legend .swatch {
+    display: inline-block; width: 14px; height: 2px;
+    vertical-align: middle; margin-right: 6px;
+  }
+  .legend .s-likely { background: var(--green); }
+  .legend .s-tight  { background: var(--oxblood); }
+  .legend .s-unknown { background: var(--ink-3); }
+
+  @media (max-width: 720px) {
+    table.cal td { height: auto; min-height: 60px; }
+    .chip .name { white-space: normal; }
+  }
+{% endblock %}
+
+{% block content %}
+  <div class="calhead">
+    <h2>{{ month_name }} {{ year }}</h2>
+    <a href="?year={{ prev_year }}&month={{ prev_month }}">← vorige</a>
+    <a href="?year={{ next_year }}&month={{ next_month }}">volgende →</a>
+  </div>
+
+  <table class="cal">
+    <thead>
+      <tr>
+        {% for d in ['maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag','zondag'] %}
+          <th>{{ d[:3] }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for week in weeks %}
+        <tr>
+          {% for day in week %}
+            {% if day == 0 %}
+              <td class="blank"></td>
+            {% else %}
+              {% set items = by_day.get(day, []) %}
+              <td class="{{ 'today' if day == today.day and month == today.month and year == today.year }}">
+                <div class="daynum">{{ day }}</div>
+                {% for r in items[:3] %}
+                  <a class="chip {{ r.outlook.band }}" href="{{ r.url }}"
+                     target="_blank" rel="noopener"
+                     title="{{ r.title }} — {{ r.venue }}, {{ r.city }} — {{ r.outlook.reason }}">
+                    <span class="name">{{ r.title }}</span>
+                    <span class="fare">{{ r.fare | euro }} · {{ r.city }}</span>
+                  </a>
+                {% endfor %}
+                {% if items | length > 3 %}
+                  <div class="more">+{{ items | length - 3 }} meer</div>
+                {% endif %}
+              </td>
+            {% endif %}
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="legend">
+    <span><i class="swatch s-likely"></i>ruime kans</span>
+    <span><i class="swatch s-tight"></i>krap</span>
+    <span><i class="swatch s-unknown"></i>onbekend</span>
+    <span>film, jeugd en uitverkocht verborgen</span>
+  </div>
+{% endblock %}
