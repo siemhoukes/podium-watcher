@@ -16,12 +16,27 @@ log = logging.getLogger(__name__)
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "podium.sqlite3"
 
+# Share of the per-run budget reserved for shows never enriched before.
+BACKLOG_SHARE = 0.25
+
+
 def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
     """Spend the adapter's per-run request budget on per-show detail.
 
-    Soonest first. A seat count three days out is worth reading every run; one
-    for next April is trivia, and the budget exists precisely because there is
-    not enough of it to go round. Shows already past are skipped outright.
+    Two things happen here, and only one of them costs a request.
+
+    Reusing a price we already know is free, so that happens for *every* show.
+    Breaking out of the loop once the budget ran out dropped Verkadefabriek
+    from 85 priced shows to 40 between two runs, because everything past the
+    budget never reached the cache.
+
+    Fetching is rationed, and split. Soonest-first alone starved the far end
+    of the calendar: 514 Tilburg shows against 60 fetches a run meant the same
+    near dates were re-read four times a day while anything past a few weeks
+    never got a price at all. Most of the budget still goes to the near end,
+    where the fill curve is worth watching, and a quarter is reserved for
+    shows never enriched before, which fills the rest of the season in over a
+    few days.
     """
     budget = getattr(adapter, "enrich_budget", 0)
     if not budget:
@@ -35,26 +50,43 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
     ]
     upcoming.sort(key=lambda p: p[0].starts_at or datetime.max)
 
-    spent = 0
+    cached_for: dict[tuple[str, str], tuple | None] = {}
     for show, snap in upcoming:
-        cached = db.known_price(show.venue_id, show.external_id)
-
-        # Applying a price we already know costs nothing, so it happens for
-        # every show regardless of budget. Breaking out of the loop instead
-        # dropped Verkadefabriek from 85 priced shows to 40 -- the cache was
-        # never reached for anything past the budget.
+        key = (show.venue_id, show.external_id)
+        cached = db.known_price(*key)
+        cached_for[key] = cached
         if snap.price_min_cents is None and cached is not None:
             snap.price_min_cents, snap.price_max_cents = cached
 
+    never_priced = [p for p in upcoming if cached_for[(p[0].venue_id, p[0].external_id)] is None]
+    reserved = min(len(never_priced), int(budget * BACKLOG_SHARE))
+    # Take the backlog from the far end, since the near end is covered anyway.
+    backlog = never_priced[-reserved:] if reserved else []
+    backlog_keys = {(s.venue_id, s.external_id) for s, _ in backlog}
+
+    soonest = [
+        p for p in upcoming
+        if (p[0].venue_id, p[0].external_id) not in backlog_keys
+    ][: budget - reserved]
+
+    spent = 0
+    for show, snap in soonest + backlog:
         if spent >= budget:
-            continue
+            break
         try:
-            if adapter.enrich(show, snap, cached_price=cached):
+            if adapter.enrich(
+                show, snap,
+                cached_price=cached_for[(show.venue_id, show.external_id)],
+            ):
                 spent += 1
         except Exception:
             log.exception("%s: enrich failed for %s", adapter.venue_id, show.url)
+
     if spent:
-        log.info("%s: enriched %s shows this run", adapter.venue_id, spent)
+        log.info(
+            "%s: enriched %s shows this run (%s from the backlog)",
+            adapter.venue_id, spent, len(backlog),
+        )
     return spent
 
 
@@ -76,7 +108,7 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
                 summary["venues"][adapter.venue_id] = {"error": str(exc)}
                 continue
 
-            priced = _enrich(db, adapter, pairs)
+            enriched = _enrich(db, adapter, pairs)
 
             changes = 0
             for show, snap in pairs:
@@ -90,13 +122,14 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             summary["venues"][adapter.venue_id] = {
                 "shows": len(pairs),
                 "changes": changes,
-                "enriched": priced,
+                "enriched": enriched,
             }
             summary["shows"] += len(pairs)
             summary["changes"] += changes
             log.info(
                 "%s: %s shows, %s changed", adapter.venue_id, len(pairs), changes
             )
+
         # Alerting lives here, not in the dashboard: a page nobody has open
         # cannot notice that a window just opened.
         try:
