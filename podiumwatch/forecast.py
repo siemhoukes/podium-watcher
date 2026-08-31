@@ -39,6 +39,76 @@ class Outlook:
     reason: str
     observations: int = 0
     span_days: float = 0.0
+    # Set only when a venue gave real numbers.
+    fraction_sold: float | None = None
+    seats_free: int | None = None
+    seats_total: int | None = None
+    sold_per_day: float | None = None
+
+
+def _seat_outlook(snapshots: list[dict], starts_at: datetime | None) -> Outlook | None:
+    """Use real seat counts when we have them.
+
+    A count is a fact, not a forecast, so even one reading says something a
+    sold-out flag never could: '84% verkocht' is worth acting on. A *rate*
+    still needs two readings, and only then is anything projected forward.
+    """
+    seated = [
+        s for s in snapshots
+        if s.get("seats_total") and s.get("seats_free") is not None
+    ]
+    if not seated:
+        return None
+
+    last = seated[-1]
+    total = last["seats_total"]
+    free = last["seats_free"]
+    sold = 1.0 - (free / total)
+
+    rate = None
+    if len(seated) >= 2:
+        first = seated[0]
+        try:
+            t0 = datetime.fromisoformat(first["observed_at"])
+            t1 = datetime.fromisoformat(last["observed_at"])
+            days = (t1 - t0).total_seconds() / 86400
+        except (ValueError, TypeError):
+            days = 0
+        if days >= 0.25 and first["seats_total"]:
+            sold0 = 1.0 - (first["seats_free"] / first["seats_total"])
+            rate = (sold - sold0) / days
+
+    # Project forward to curtain if we know how fast it is filling.
+    projected = sold
+    if rate is not None and rate > 0 and starts_at:
+        days_left = max(0.0, (starts_at - datetime.now()).total_seconds() / 86400)
+        projected = min(1.0, sold + rate * days_left)
+
+    pct = f"{sold * 100:.0f}%"
+    if free <= 0:
+        band, score, reason = GONE, 0.0, "Uitverkocht."
+    elif projected >= 0.97 or free < 15:
+        band, score = TIGHT, 0.2
+        reason = f"{pct} verkocht, nog {free} van {total} plaatsen — krap."
+    elif projected >= 0.85:
+        band, score = TIGHT, 0.4
+        reason = f"{pct} verkocht, nog {free} plaatsen."
+    else:
+        band = LIKELY
+        score = 0.6 + 0.35 * (1.0 - projected)
+        reason = f"{pct} verkocht, nog {free} van {total} plaatsen."
+
+    if rate is not None:
+        reason += f" Vult ~{rate * 100:.1f}%/dag."
+        conf = HIGH if len(seated) >= 4 else MEDIUM
+    else:
+        conf = LOW  # a real number, but no trend yet
+
+    return Outlook(
+        band, conf, score, reason, len(snapshots),
+        0.0, fraction_sold=sold, seats_free=free,
+        seats_total=total, sold_per_day=rate,
+    )
 
 
 def _confidence(observations: int, span_days: float) -> str:
@@ -55,6 +125,11 @@ def outlook(snapshots: list[dict], starts_at: datetime | None = None) -> Outlook
     """`snapshots` is oldest-first; each needs `state` and `observed_at`."""
     if not snapshots:
         return Outlook(UNKNOWN_OUTLOOK, COLLECTING, 0.5, "Nog niet waargenomen.")
+
+    # Real numbers beat any inference from a coarse flag.
+    seat_based = _seat_outlook(snapshots, starts_at)
+    if seat_based is not None:
+        return seat_based
 
     states = [s["state"] for s in snapshots]
     latest = states[-1]

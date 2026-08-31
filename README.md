@@ -85,12 +85,51 @@ links in the HTML are hidden SEO placeholders with no dates or availability.
 corporate site. Next step is a browser session to capture what the agenda
 actually fetches.
 
-**Exact seat counts are reachable.** Ticketmatic's widget renders
-`"{n} stoelen beschikbaar"` and exposes
-`/widgets/backend/{account}/{lang}/eventseatingplan/{code}/availability/...`.
-The blocker is that `{code}` is a hashed event reference, not the numeric event
-id we already store in `shows.ticket_ref`. Cracking that upgrades Tilburg (and
-any other Ticketmatic venue) from a binary flag to a real seat count.
+## Exact seat counts — solved for Ticketmatic
+
+Tilburg now yields a real fill rate. Two requests per performance:
+
+```
+GET <shows.ticket_url>          the signed widget URL the venue links to
+    -> events[0].contingents[]              unseated: 4-level availability
+    -> events[0].seatingplancontingents[]   seated: 4-level per rank
+    -> events[0].prices.contingents[]       real prices, with conditions
+    -> account.id
+
+GET /widgets/backend/{account}/nl/eventseatingplan/{event.id}/availability/1
+    -> {"sections":[{"rank":10000,"av":427,"tot":619}, ...]}
+```
+
+`av`/`tot` are free and total seats per rank. Summed, that is an exact fill
+rate with a real denominator:
+
+| | |
+|---|---|
+| Wibi Soerjadi | 564 / 766 free — **26% sold** |
+| Pieter Derks | 142 / 886 free — **84% sold** |
+
+Three things had to line up, and each looked like a dead end first:
+
+- The **short** event id from the listing (`event=40274`) is rejected on its
+  own. The widget only answers for the full signed URL carrying `accesskey`
+  and `signature` — which was already sitting in `shows.ticket_url`.
+- The `{code}` in the seating-plan path is not any numeric id but the event's
+  own hashed `id` from the embedded JSON.
+- Ticketmatic grades availability on a four-level scale — `good`, `reduced`,
+  `last`, `none` — not a boolean, and `last` does occur in the wild.
+
+This also solves Tilburg's missing prices: the widget carries the real fares
+(`normaal € 24,50` beside a voucher-gated `ambassadeurs € 22,05`, which is
+excluded because not everyone can buy it).
+
+Unseated events ("vrije zit", "staanplaats") have no seating plan, so they give
+the four-level word and no number. That is reported as such.
+
+**Peppered does not offer the same.** Chassé and Parktheater expose only
+`/cart/add/`-style endpoints; a seat map appears once a basket exists, which
+would place a real hold on someone else's inventory. Their production pages do
+carry schema.org JSON-LD (`price`, `availability: SoldOut`), but no counts. So
+seat numbers there stay out of reach without reserving seats, and we do not.
 
 ## Prices are labelled, and the labels matter
 

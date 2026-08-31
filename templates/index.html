@@ -73,7 +73,17 @@
   .status.available { color: var(--green); }
   .status.limited   { color: var(--oxblood); }
   .status.unknown   { color: var(--ink-3); }
-  .seats { font-family: var(--sans); font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+  .seats {
+    font-family: var(--sans); font-size: 12px; color: var(--ink-2);
+    margin-top: 6px; display: flex; align-items: center; gap: 9px;
+  }
+  .fillbar {
+    width: 108px; height: 5px; background: var(--rule);
+    flex: 0 0 auto; position: relative; overflow: hidden;
+  }
+  .fillbar i { display: block; height: 100%; background: var(--ink-2); }
+  .fillbar.tight i { background: var(--oxblood); }
+  .seats .num { color: var(--ink); }
   .trend { font-size: 14px; font-style: italic; color: var(--ink-3); margin-top: 4px; }
 
   .price { text-align: right; padding-top: 2px; }
@@ -188,16 +198,26 @@
           {% else %}Verkoopstatus onbekend{% endif %}
         </div>
 
-        {# Only shown when a venue really gave us a number. None do yet, so
-           this stays hidden rather than guessing at a seat count. #}
-        {% if r.seats_free is not none %}
+        {# Shown only when the venue gave a real count. Ticketmatic does for
+           seated halls; unseated events and the other venues do not, and
+           those get nothing rather than a guess. #}
+        {% if r.outlook.seats_total %}
           <div class="seats">
-            nog {{ r.seats_free }}{% if r.seats_total %} van {{ r.seats_total }}{% endif %} plaatsen
+            <span class="fillbar {{ 'tight' if r.outlook.fraction_sold > 0.85 }}">
+              <i style="width: {{ (r.outlook.fraction_sold * 100) | round | int }}%"></i>
+            </span>
+            <span><span class="num">{{ r.outlook.seats_free }}</span> van
+              {{ r.outlook.seats_total }} vrij ·
+              {{ (r.outlook.fraction_sold * 100) | round | int }}% verkocht</span>
           </div>
         {% endif %}
 
-        {# A trend needs history. Until there is some, say nothing. #}
-        {% if r.outlook.confidence != 'collecting' and r.outlook.band != 'unknown' %}
+        {# A trend needs history. Until there is some, say nothing. The seat
+           line above already states the fact, so avoid repeating it. #}
+        {% if r.outlook.sold_per_day is not none %}
+          <div class="trend">Vult ~{{ '%.1f' % (r.outlook.sold_per_day * 100) }}% per dag.</div>
+        {% elif not r.outlook.seats_total and r.outlook.confidence != 'collecting'
+                and r.outlook.band != 'unknown' %}
           <div class="trend">{{ r.outlook.reason }}</div>
         {% endif %}
       </div>

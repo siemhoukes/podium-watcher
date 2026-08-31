@@ -17,6 +17,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
+from . import ticketmatic
 from .base import VenueAdapter, clean, parse_dutch_datetime
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,21 @@ class TilburgAdapter(VenueAdapter):
     name = "Schouwburg & Concertzaal Tilburg"
     city = "Tilburg"
     travel_minutes = 5  # on foot
+
+    # Tilburg publishes neither price nor seat count on its own site, so
+    # every useful number costs one or two Ticketmatic requests. Worth it:
+    # this is the only venue that yields an exact fill rate.
+    enrich_budget = 60
+
+    def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        """Real prices and, for seated halls, an exact seat count.
+
+        Unlike prices, seat counts must be re-read every run -- the whole
+        point is watching them move -- so nothing here is cached.
+        """
+        if not show.ticket_url or "ticketmatic.com" not in show.ticket_url:
+            return False
+        return ticketmatic.enrich_from_widget(self.fetcher, show.ticket_url, snap)
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
         results: list[tuple[Show, Snapshot]] = []

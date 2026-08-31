@@ -44,6 +44,21 @@ class VerkadefabriekAdapter(VenueAdapter):
     city = "Den Bosch"
     travel_minutes = 25
 
+    # One detail page per show, but prices never change, so a show is only
+    # ever fetched once and the whole programme fills in over a few runs.
+    enrich_budget = 40
+
+    def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        if snap.price_min_cents is not None:
+            return False
+        if cached_price is not None:
+            snap.price_min_cents, snap.price_max_cents = cached_price
+            return False
+        lo, hi = self.fetch_detail_price(show)
+        if lo is not None:
+            snap.price_min_cents, snap.price_max_cents = lo, hi
+        return True
+
     def fetch(self) -> list[tuple[Show, Snapshot]]:
         results: list[tuple[Show, Snapshot]] = []
         seen: set[str] = set()

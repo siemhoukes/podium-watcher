@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from .db import Database
@@ -14,42 +15,37 @@ log = logging.getLogger(__name__)
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "podium.sqlite3"
 
-# Detail pages are one request each, so the first run on a venue is spread
-# over several polls rather than hammering the site in one go. Prices do not
-# change, so once a show has one it is never fetched again.
-PRICE_BUDGET_PER_RUN = 40
+def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
+    """Spend the adapter's per-run request budget on per-show detail.
 
-
-def _enrich_prices(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
-    """Fill in prices the listing page does not carry.
-
-    Only for adapters that opt in with `fetch_detail_price`, only for shows
-    we have never priced, and only up to a per-run budget.
+    Soonest first. A seat count three days out is worth reading every run; one
+    for next April is trivia, and the budget exists precisely because there is
+    not enough of it to go round. Shows already past are skipped outright.
     """
-    fetch_price = getattr(adapter, "fetch_detail_price", None)
-    if fetch_price is None:
+    budget = getattr(adapter, "enrich_budget", 0)
+    if not budget:
         return 0
 
+    now = datetime.now()
+    upcoming = [
+        (show, snap)
+        for show, snap in pairs
+        if show.starts_at is None or show.starts_at >= now
+    ]
+    upcoming.sort(key=lambda p: p[0].starts_at or datetime.max)
+
     spent = 0
-    for show, snap in pairs:
-        if snap.price_min_cents is not None:
-            continue
+    for show, snap in upcoming:
+        if spent >= budget:
+            break
         cached = db.known_price(show.venue_id, show.external_id)
-        if cached is not None:
-            snap.price_min_cents, snap.price_max_cents = cached
-            continue
-        if spent >= PRICE_BUDGET_PER_RUN:
-            continue
-        spent += 1
         try:
-            lo, hi = fetch_price(show)
+            if adapter.enrich(show, snap, cached_price=cached):
+                spent += 1
         except Exception:
-            log.exception("%s: price fetch failed for %s", adapter.venue_id, show.url)
-            continue
-        if lo is not None:
-            snap.price_min_cents, snap.price_max_cents = lo, hi
+            log.exception("%s: enrich failed for %s", adapter.venue_id, show.url)
     if spent:
-        log.info("%s: fetched %s detail prices this run", adapter.venue_id, spent)
+        log.info("%s: enriched %s shows this run", adapter.venue_id, spent)
     return spent
 
 
@@ -71,7 +67,7 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
                 summary["venues"][adapter.venue_id] = {"error": str(exc)}
                 continue
 
-            priced = _enrich_prices(db, adapter, pairs)
+            priced = _enrich(db, adapter, pairs)
 
             changes = 0
             for show, snap in pairs:
@@ -85,7 +81,7 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             summary["venues"][adapter.venue_id] = {
                 "shows": len(pairs),
                 "changes": changes,
-                "prices_fetched": priced,
+                "enriched": priced,
             }
             summary["shows"] += len(pairs)
             summary["changes"] += changes

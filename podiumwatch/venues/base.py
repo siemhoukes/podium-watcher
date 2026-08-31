@@ -102,8 +102,22 @@ class VenueAdapter:
     city: str = ""
     travel_minutes: int = 0
 
+    # How many per-show detail fetches this adapter may spend in one run.
+    # Listing pages are one request for hundreds of shows; per-show detail is
+    # one request each, so it is rationed and spent on the soonest shows,
+    # which is where accuracy actually matters.
+    enrich_budget: int = 0
+
     def __init__(self, fetcher: Fetcher):
         self.fetcher = fetcher
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
         raise NotImplementedError
+
+    def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        """Add detail the listing page cannot give (seats, real prices).
+
+        Return True if a network request was spent, so the poller can hold to
+        its budget. Default: nothing to add.
+        """
+        return False
