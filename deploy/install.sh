@@ -49,6 +49,27 @@ EOF
 
 install -m 644 "$PROJECT_DIR/services/podium-poller.timer" \
     /etc/systemd/system/podium-poller.timer
+install -m 644 "$PROJECT_DIR/services/podium-digest.timer" \
+    /etc/systemd/system/podium-digest.timer
+
+cat > /etc/systemd/system/podium-digest.service <<EOF
+[Unit]
+Description=Podium Watcher - weekly digest
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+EnvironmentFile=-/etc/podium-watcher/podium.env
+ExecStart=$PROJECT_DIR/.venv/bin/python -u run_digest.py
+TimeoutStartSec=600
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=$PROJECT_DIR/data
+EOF
 
 cat > /etc/systemd/system/podium-web.service <<EOF
 [Unit]
