@@ -1,0 +1,21 @@
+# Reference unit — deploy/install.sh generates the real one with your paths/user.
+# Unlike hut-watcher, this poller is a oneshot driven by a timer: four short
+# runs a day is enough to build fill curves, so a resident process would just
+# be a thing that can crash silently overnight.
+[Unit]
+Description=Podium Watcher — poll venue agendas
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__PROJECT_DIR__/.venv/bin/python -u run_once.py
+# One slow venue must not wedge the timer.
+TimeoutStartSec=1800
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=__PROJECT_DIR__/data

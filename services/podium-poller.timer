@@ -1,0 +1,14 @@
+[Unit]
+Description=Podium Watcher — poll venue agendas four times a day
+
+[Timer]
+# Spread across the day so a curve has usable resolution without hammering
+# seven small theatre websites.
+OnCalendar=*-*-* 06,12,18,22:00:00
+# Never hit every venue at exactly the same wall-clock minute.
+RandomizedDelaySec=900
+# If the Pi was off at the scheduled time, still collect once it is back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
