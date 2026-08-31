@@ -53,9 +53,9 @@ would poison the forecast.
 | Venue | Agenda | Platform | Signal | Status |
 |---|---|---|---|---|
 | Chassé | `/programma?page=N` | Peppered | exact datetime, hall, 3-level status | **live** — 619 |
-| Tilburg | `/nl/agenda?page=N` | Ticketmatic | sold-out flag | **live** — 514 |
+| Tilburg | `/nl/agenda?page=N` | Ticketmatic | **exact seat counts** + real prices | **live** — 514 |
 | Parktheater | `/programma?page=N` | Peppered | exact datetime, hall, 3-level status | **live** — 319 |
-| Verkadefabriek | `/podium?page=N` | — | empty vs. badge (weak) | **live** — 90 |
+| Verkadefabriek | `/podium?page=N` | **Ticketmatic** | 4-level + real prices, seats when seated | **live** — 90 |
 | MgE | client-rendered (SEO stubs only) | Tixly | needs its XHR endpoint found | todo |
 | Paradox / 013 | server-rendered, custom markup | — | not yet parsed | todo |
 
@@ -74,10 +74,13 @@ That also rules out `data-event-id` as identity, since it disappears exactly
 when a show sells out. The key is production id + start time, observable in
 both shapes.
 
-**Verkadefabriek is the weak case.** A show on sale has an *empty*
-`.ticket-status` div; only a sold-out one has a badge. Absence-as-signal breaks
-silently, so the adapter warns if it finds events but no `.ticket-status`
-elements at all.
+**Verkadefabriek's listing is the weak case** — a show on sale has an *empty*
+`.ticket-status` div and only a sold-out one has a badge, so absence-as-signal
+breaks silently and the adapter warns if it finds events but no
+`.ticket-status` elements at all. It matters less now: Verkadefabriek turns out
+to run on Ticketmatic as well, and its `/agenda/koop-ticket?programId=` link
+302s to the same signed widget, so it gets graded availability and real prices
+from there instead.
 
 **MgE is the blocked case.** Its agenda renders client-side — the 264 event
 links in the HTML are hidden SEO placeholders with no dates or availability.
@@ -122,8 +125,15 @@ This also solves Tilburg's missing prices: the widget carries the real fares
 (`normaal € 24,50` beside a voucher-gated `ambassadeurs € 22,05`, which is
 excluded because not everyone can buy it).
 
-Unseated events ("vrije zit", "staanplaats") have no seating plan, so they give
-the four-level word and no number. That is reported as such.
+Unseated events ("vrije zit", "staanplaats", "vrije plaatskeuze") have no
+seating plan, so they give the four-level word and no number. That is reported
+as such.
+
+**Verkadefabriek is on Ticketmatic too**, reached through its own
+`/agenda/koop-ticket?programId=` redirect, so the identical reader serves both
+venues. Its widget response is 5.7 MB where the event JSON ends by ~60 KB, so
+the fetch is capped: `get_text(max_bytes=…)` streams and stops early rather
+than pulling the bundle forty times a run.
 
 **Peppered does not offer the same.** Chassé and Parktheater expose only
 `/cart/add/`-style endpoints; a seat map appears once a basket exists, which

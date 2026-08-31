@@ -24,6 +24,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
+from . import ticketmatic
 from .base import VenueAdapter, clean, euros_to_cents as _euro_cents, parse_dutch_datetime
 
 log = logging.getLogger(__name__)
@@ -49,11 +50,23 @@ class VerkadefabriekAdapter(VenueAdapter):
     enrich_budget = 40
 
     def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        """Verkadefabriek runs on Ticketmatic too.
+
+        Its own /koop-ticket link 302s to the same signed widget Tilburg uses,
+        so the identical reader gives graded availability, real prices and --
+        for seated halls -- an exact seat count. Better than the detail-page
+        price scrape, which is kept only as a fallback.
+        """
+        if show.ticket_url:
+            if ticketmatic.enrich_from_widget(self.fetcher, show.ticket_url, snap):
+                if snap.price_min_cents is not None:
+                    return True
+                # Widget gave no price; fall through to the detail page.
         if snap.price_min_cents is not None:
-            return False
+            return True
         if cached_price is not None:
             snap.price_min_cents, snap.price_max_cents = cached_price
-            return False
+            return bool(show.ticket_url)
         lo, hi = self.fetch_detail_price(show)
         if lo is not None:
             snap.price_min_cents, snap.price_max_cents = lo, hi
@@ -150,6 +163,9 @@ class VerkadefabriekAdapter(VenueAdapter):
                 starts_at=starts_at,
                 url=BASE + href if href.startswith("/") else href,
                 tags=tags,
+                # Redirects to the signed Ticketmatic widget for this event.
+                ticket_url=f"{BASE}/agenda/koop-ticket?programId={production_id}",
+                ticket_ref=production_id,
             ),
             self._availability(wrapper),
         )

@@ -138,14 +138,25 @@ def seat_counts(fetcher, account: str, event_id: str) -> tuple[int | None, int |
     return (free, total) if total else (None, None)
 
 
+# The event JSON sits in the first ~60 KB. Verkadefabriek's widget is 5.7 MB
+# in total, almost all of it bundle, so the read is capped well past where the
+# data ends but far short of the whole document.
+WIDGET_HEAD_BYTES = 1_500_000
+
+
 def enrich_from_widget(fetcher, ticket_url: str, snap: Snapshot) -> bool:
     """Fill `snap` with prices, availability and seat counts. True if fetched."""
-    html = fetcher.get_text(ticket_url)
+    html = fetcher.get_text(ticket_url, max_bytes=WIDGET_HEAD_BYTES)
     if not html:
         return False
 
     event, account = parse_widget(html)
     if not event:
+        if len(html) >= WIDGET_HEAD_BYTES:
+            log.warning(
+                "ticketmatic: no event found within the first %s bytes of %s",
+                WIDGET_HEAD_BYTES, ticket_url[:90],
+            )
         return True  # request spent, but nothing to read
 
     state, word = availability_state(event)

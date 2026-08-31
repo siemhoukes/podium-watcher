@@ -69,7 +69,16 @@ class Fetcher:
                 time.sleep(2**attempt + random.uniform(0, 1))
         return None
 
-    def get_text(self, url: str, **kwargs) -> str | None:
+    def get_text(self, url: str, max_bytes: int | None = None, **kwargs) -> str | None:
+        """Fetch text, optionally stopping after `max_bytes`.
+
+        Verkadefabriek's Ticketmatic widget is 5.7 MB, of which the event JSON
+        we want ends by about 60 KB; the rest is bundle. Downloading all of it
+        forty times a run is pure waste, so callers that only need the head of
+        a document can cap it.
+        """
+        if max_bytes:
+            kwargs["stream"] = True
         resp = self.get(url, **kwargs)
         if resp is None:
             return None
@@ -77,4 +86,17 @@ class Fetcher:
         # which makes requests fall back to latin-1 and mangle every accent.
         if resp.encoding is None or resp.encoding.lower() == "iso-8859-1":
             resp.encoding = resp.apparent_encoding or "utf-8"
-        return resp.text
+
+        if not max_bytes:
+            return resp.text
+
+        try:
+            chunks, total = [], 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= max_bytes:
+                    break
+            return b"".join(chunks).decode(resp.encoding or "utf-8", "replace")
+        finally:
+            resp.close()
