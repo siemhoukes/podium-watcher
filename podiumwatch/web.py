@@ -12,6 +12,7 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from flask import Flask, render_template, request
 
@@ -75,12 +76,14 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         starts_at = datetime.fromisoformat(s["starts_at"])
 
         price_min = latest.get("price_min_cents")
+        price_student = latest.get("price_student_cents")
         deal = deals.deal_for(s["venue_id"])
         deal_ok = deals.deal_applies(s["venue_id"], s["ticket_url"])
         # Sold through a third party: quote no student fare rather than a
         # wrong one.
         fare = (
-            deals.deal_price_cents(s["venue_id"], price_min) if deal_ok else None
+            deals.deal_price_cents(s["venue_id"], price_min, price_student)
+            if deal_ok else None
         )
         wstate, until = deals.window_state(s["venue_id"], starts_at, now)
         look = forecast.outlook(history, starts_at)
@@ -107,6 +110,12 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "deal_ok": deal_ok,
                 "fare": fare,
                 "base_price": price_min,
+                "published_student": price_student,
+                "base_price_max": latest.get("price_max_cents"),
+                # Only ever set when a venue really told us a number. Still
+                # always None today -- see the note in the template.
+                "seats_free": latest.get("seats_free"),
+                "seats_total": latest.get("seats_total"),
                 "state": latest.get("state", "unknown"),
                 "outlook": look,
                 "window_state": wstate,
@@ -153,22 +162,41 @@ def _rank(look, fare: int | None, travel: int, days_away: float) -> float:
     return score
 
 
+PRICE_STEPS = [1000, 1500, 2000, 3000]
+
+
 @app.route("/")
 def index():
     days = max(1, min(60, request.args.get("days", 14, type=int)))
     sort = request.args.get("sort", "rank")
     hide_film = request.args.get("film", "0") != "1"
+    venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
+    max_price = request.args.get("max", type=int)  # in cents
+    hide_free = request.args.get("free", "0") != "1"
 
     now = datetime.now()
     with connect() as conn:
         rows = _rows_for(conn, now, now + timedelta(days=days))
 
+    total_found = len(rows)
+
+    # Sold-out performances stay in the database -- they are the most
+    # informative thing that can happen to a show -- but there is no point
+    # offering you a ticket that does not exist.
     rows = [r for r in rows if r["outlook"].band != forecast.GONE]
     # Externally sold events are in the building but not part of any deal.
     rows = [r for r in rows if r["deal_ok"]]
     rows = [r for r in rows if not _has_tag(r["tags"], KIDS_TAGS | COURSE_TAGS)]
     if hide_film:
         rows = [r for r in rows if not _has_tag(r["tags"], FILM_TAGS)]
+    if venues:
+        rows = [r for r in rows if r["venue_id"] in venues]
+    if max_price:
+        # A show whose fare we cannot compute is kept: hiding it would be
+        # pretending we know it is expensive.
+        rows = [r for r in rows if r["fare"] is None or r["fare"] <= max_price]
+    if hide_free:
+        rows = [r for r in rows if r["fare"] is None or r["fare"] > 0]
 
     if sort == "date":
         rows.sort(key=lambda r: r["starts_at"])
@@ -181,6 +209,12 @@ def index():
         days=days,
         sort=sort,
         hide_film=hide_film,
+        venues=venues,
+        max_price=max_price,
+        hide_free=hide_free,
+        price_steps=PRICE_STEPS,
+        venue_meta=VENUE_META,
+        hidden_count=total_found - len(rows),
         stats=_stats(),
         now=now,
     )
@@ -254,6 +288,35 @@ def _stats() -> dict:
         "venues": venues,
         "last_poll": last_dt,
     }
+
+
+@app.context_processor
+def _url_helpers():
+    """Build links that keep every other filter intact."""
+
+    def qs(**overrides) -> str:
+        args = request.args.to_dict(flat=False)
+        for key, value in overrides.items():
+            if value is None:
+                args.pop(key, None)
+            elif isinstance(value, (list, tuple)):
+                args[key] = list(value)
+            else:
+                args[key] = [str(value)]
+        parts = [
+            f"{k}={quote_plus(str(v))}" for k, vals in args.items() for v in vals
+        ]
+        return "?" + "&".join(parts) if parts else "?"
+
+    def toggle_venue(venue_id: str) -> str:
+        current = [v for v in request.args.getlist("venue") if v in VENUE_META]
+        if venue_id in current:
+            current = [v for v in current if v != venue_id]
+        else:
+            current = current + [venue_id]
+        return qs(venue=current or None)
+
+    return {"qs": qs, "toggle_venue": toggle_venue}
 
 
 @app.template_filter("euro")

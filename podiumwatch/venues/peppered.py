@@ -4,31 +4,46 @@ Chasse (Breda) and Parktheater (Eindhoven) both use it, and their markup is
 identical enough that one parser handles both unchanged -- only the base URL
 and the venue metadata differ.
 
-Peppered is by far the most generous source we have. Every performance anchor
-carries machine-readable attributes, so nothing has to be guessed:
+A production holds one or more performances; we store one row per
+*performance*, because that is the thing that sells out and the thing you
+can attend.
 
-    data-event-id          stable per-performance id
-    data-event-start       "2026-08-31 17:00:00"
-    data-event-hall        which room, which matters for capacity later
-    data-production-type   movie / default
-    class="... status-*"   three-level availability, not just sold-out y/n
+Peppered renders a performance in one of two shapes, and getting only the
+first one wrong cost us every sold-out show in the database:
 
-A production holds many performances; we store one row per *performance*,
-because that is the thing that sells out and the thing you can attend.
+1. **On sale** -- an order anchor carrying `data-event-id`,
+   `data-event-start`, `data-event-hall` and a `status-*` class.
+2. **Not on sale** (sold out, or info-only) -- a bare link to the production
+   page with `class="status-info status-uitverkocht"` and *no data
+   attributes at all*. Date, time and hall live on the card instead.
+
+Selecting only `a[data-event-id]` therefore skipped every sold-out
+performance silently: it did not record them as sold out, it dropped them
+entirely, so a show that sold out simply vanished from the data and its fill
+curve ended without capturing the one event that matters most.
+
+Because of that, identity cannot be `data-event-id` -- it disappears the
+moment a show sells out, and the same performance would come back as a new
+row. The key is production id + start time, which is observable in both
+shapes.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
 
 from bs4 import BeautifulSoup
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
-from .base import VenueAdapter, clean, euros_to_cents
+from .base import VenueAdapter, clean, euros_to_cents, parse_dutch_datetime
 
 log = logging.getLogger(__name__)
+
+
+def cls_norm(text: str) -> str:
+    """Collapse NBSP and runs of whitespace; the price block is full of both."""
+    return re.sub(r"\s+", " ", text.replace(" ", " ")).strip()
 
 # Peppered's per-performance sale states.
 STATUS_MAP = {
@@ -46,6 +61,10 @@ class PepperedAdapter(VenueAdapter):
     base_url: str = ""
     programme_path: str = "/programma"
     max_pages: int = 40
+
+    # Below this, a figure in the price range is a placeholder rather than a
+    # seat anyone buys.
+    MIN_PLAUSIBLE_CENTS = 500
 
     @property
     def programme_url(self) -> str:
@@ -81,94 +100,262 @@ class PepperedAdapter(VenueAdapter):
         log.info("%s: %s performances", self.venue_id, len(results))
         return results
 
+    # ---- parsing -------------------------------------------------------
+
     def _parse_page(self, html: str) -> list[tuple[Show, Snapshot]]:
         soup = BeautifulSoup(html, "html.parser")
-        out = []
+        out: list[tuple[Show, Snapshot]] = []
         for card in soup.select("li.eventCard"):
-            # Price sits on the production; the dates hang underneath it.
-            price_el = card.select_one(".price")
-            price_min, price_max = self._prices(
-                clean(price_el.get_text()) if price_el else None
-            )
-            for anchor in card.select("a[data-event-id]"):
-                parsed = self._parse_performance(anchor, price_min, price_max)
-                if parsed:
-                    out.append(parsed)
+            out.extend(self._parse_card(card))
         return out
 
-    def _parse_performance(
-        self, a, price_min: int | None, price_max: int | None
-    ) -> tuple[Show, Snapshot] | None:
-        event_id = a.get("data-event-id")
-        title = clean(a.get("data-production-title"))
-        if not event_id or not title:
-            return None
+    def _parse_card(self, card) -> list[tuple[Show, Snapshot]]:
+        production_id = card.get("data-entry-id")
+        title_el = card.select_one(".title")
+        title = clean(title_el.get_text()) if title_el else None
+        if not production_id or not title:
+            return []
 
+        subtitle_el = card.select_one(".subtitle")
+        subtitle = clean(subtitle_el.get_text()) if subtitle_el else None
+
+        # The production page is what a person wants to open -- the order
+        # anchor goes straight into a basket.
+        desc = card.select_one("a.desc") or card.select_one("a.image")
+        href = desc.get("href") if desc else None
+        url = (
+            (self.base_url + href) if href and href.startswith("/") else
+            (href or self.programme_url)
+        )
+
+        price_el = card.select_one(".price")
+        price_min, price_max, price_student = self._prices(
+            cls_norm(price_el.get_text(" ", strip=True))
+            if price_el else None
+        )
+
+        prod_type = None
+        for cls in card.get("class") or []:
+            if cls.startswith("production-type-"):
+                prod_type = cls[len("production-type-"):]
+                break
+
+        common = dict(
+            production_id=production_id,
+            title=title,
+            subtitle=subtitle,
+            url=url,
+            prod_type=prod_type or "default",
+            price_min=price_min,
+            price_max=price_max,
+            price_student=price_student,
+        )
+
+        order_anchors = card.select("a[data-event-id]")
+        if order_anchors:
+            out = []
+            for a in order_anchors:
+                parsed = self._from_order_anchor(a, **common)
+                if parsed:
+                    out.append(parsed)
+            return out
+
+        # No order anchor: the performance is not buyable. Read it off the
+        # card, which is where the date, time and hall live in this shape.
+        parsed = self._from_card_only(card, **common)
+        return [parsed] if parsed else []
+
+    def _from_order_anchor(
+        self, a, *, production_id, title, subtitle, url, prod_type,
+        price_min, price_max, price_student,
+    ) -> tuple[Show, Snapshot] | None:
         starts_at = None
         raw_start = a.get("data-event-start")
         if raw_start:
             try:
+                from datetime import datetime
+
                 starts_at = datetime.strptime(raw_start, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 log.debug("%s: unparsable start %r", self.venue_id, raw_start)
-
-        prod_type = a.get("data-production-type") or "default"
-        prod_id = a.get("data-production-id")
-        url = (
-            f"{self.programme_url}?production={prod_id}"
-            if prod_id
-            else self.programme_url
-        )
-
-        state = UNKNOWN
-        for cls in a.get("class") or []:
-            if cls.startswith("status-"):
-                state = STATUS_MAP.get(cls[len("status-") :], UNKNOWN)
-                break
+        if starts_at is None:
+            return None
 
         return (
             Show(
                 venue_id=self.venue_id,
-                external_id=str(event_id),
+                external_id=self._key(production_id, starts_at),
                 title=title,
-                subtitle=clean(a.get("data-production-subtitle")),
+                subtitle=subtitle,
                 starts_at=starts_at,
                 url=url,
                 hall=clean(a.get("data-event-hall")),
                 tags=[prod_type],
                 ticket_url=a.get("href"),
-                ticket_ref=a.get("data-event-boxofficeid"),
+                ticket_ref=a.get("data-event-id"),
             ),
             Snapshot(
-                state=state,
+                state=self._state_from_classes(a.get("class") or []),
                 price_min_cents=price_min,
                 price_max_cents=price_max,
+                price_student_cents=price_student,
             ),
         )
 
-    # Below this, a figure in the price range is a placeholder rather than a
-    # seat anyone buys.
-    MIN_PLAUSIBLE_CENTS = 500
+    def _from_card_only(
+        self, card, *, production_id, title, subtitle, url, prod_type,
+        price_min, price_max, price_student,
+    ) -> tuple[Show, Snapshot] | None:
+        top = card.select_one(".top-date")
+        if top is None:
+            return None
+        # A start/end pair means a run of several nights summarised on one
+        # card. Without per-date rows we cannot say which night this is, and
+        # inventing one would be worse than recording nothing.
+        if top.select_one(".end"):
+            log.debug(
+                "%s: skipping multi-date card %s with no per-date rows",
+                self.venue_id, production_id,
+            )
+            return None
+
+        start_el = top.select_one(".start")
+        time_el = top.select_one(".time")
+        date_text = clean(start_el.get_text()) if start_el else None
+        time_text = clean(time_el.get_text()) if time_el else None
+        starts_at = parse_dutch_datetime(date_text or "", time_text)
+        if starts_at is None:
+            return None
+
+        venue_el = card.select_one(".venue")
+        status_anchor = card.select_one("a[class*=status-]")
+        classes = status_anchor.get("class") if status_anchor else []
+
+        return (
+            Show(
+                venue_id=self.venue_id,
+                external_id=self._key(production_id, starts_at),
+                title=title,
+                subtitle=subtitle,
+                starts_at=starts_at,
+                url=url,
+                hall=clean(venue_el.get_text()) if venue_el else None,
+                tags=[prod_type],
+                ticket_url=None,  # nothing to buy
+                ticket_ref=None,
+            ),
+            Snapshot(
+                state=self._state_from_classes(classes or []),
+                price_min_cents=price_min,
+                price_max_cents=price_max,
+                price_student_cents=price_student,
+            ),
+        )
+
+    # ---- helpers -------------------------------------------------------
+
+    @staticmethod
+    def _key(production_id: str, starts_at) -> str:
+        """Stable across sale states.
+
+        `data-event-id` vanishes when a performance sells out, so keying on
+        it would file the same night as a new show the moment it matters.
+        """
+        return f"{production_id}-{starts_at:%Y%m%d%H%M}"
+
+    @staticmethod
+    def _state_from_classes(classes: list[str]) -> str:
+        """`status-info status-uitverkocht` must read as sold out, not info.
+
+        The classes arrive in the generic-to-specific order Peppered emits,
+        so the most specific recognised one wins rather than the first.
+        """
+        best = UNKNOWN
+        for cls in classes:
+            if not cls.startswith("status-"):
+                continue
+            token = cls[len("status-"):]
+            if not token:
+                continue
+            mapped = STATUS_MAP.get(token)
+            if mapped is None:
+                continue
+            if mapped != UNKNOWN or best == UNKNOWN:
+                best = mapped
+            if mapped in (SOLD_OUT, LIMITED, AVAILABLE):
+                best = mapped
+        return best
+
+    # Subscription tiers that are not open to a walk-up buyer. Treating a
+    # Cineville fare as the base price would understate every film.
+    IGNORED_PRICE_LABELS = (
+        "cineville", "kidspas", "bredapas", "abonnement", "kinderen",
+        "begeleider", "vriend", "donateur",
+    )
+    STUDENT_PRICE_LABELS = ("student", "scholier", "cjp")
 
     @classmethod
-    def _prices(cls, text: str | None) -> tuple[int | None, int | None]:
-        """'€ 10,00 – € 13,00' -> (1000, 1300). Single price -> (p, p).
+    def _price_categories(cls, text: str) -> list[tuple[int, str]]:
+        """'volloopplaats normaal € 14,50 student € 10,00' -> [(1450, ...)].
 
-        Peppered renders a placeholder floor on most productions -- '€ 0,00'
-        at Parktheater and a flat '€ 1,00' on 271 of Chasse's 514 rows. Neither
-        is purchasable, and both wreck a percentage deal: half of Chasse's
-        '€ 1,00 - € 52,00' reads as a 50-cent ticket to Piaf. Anything under
-        MIN_PLAUSIBLE_CENTS is therefore dropped before taking the range, so
-        the base price reflects seats that actually exist.
+        Labels precede their amount, so each '€' chunk begins with the amount
+        belonging to the label accumulated so far and ends with the label for
+        the next one.
+        """
+        chunks = text.split("€")
+        if len(chunks) < 2:
+            return []
+        out: list[tuple[int, str]] = []
+        label = chunks[0].strip()
+        for chunk in chunks[1:]:
+            m = re.match(r"\s*([\d.,]+)", chunk)
+            if not m:
+                label = chunk.strip()
+                continue
+            cents = euros_to_cents(m.group(1).rstrip(".,"))
+            out.append((cents or 0, label.lower()))
+            label = chunk[m.end():].strip()
+        return out
+
+    @classmethod
+    def _prices(cls, text: str | None) -> tuple[int | None, int | None, int | None]:
+        """-> (normal_min, normal_max, published_student_price).
+
+        Peppered writes the price block two ways. Sometimes it is a bare range
+        ('€ 0,00–€ 13,00'), where the floor is a placeholder nobody pays.
+        Sometimes it is labelled categories, and then the labels matter a great
+        deal: 'volloopplaats normaal € 14,50 scholier/student/CJP € 10,00'
+        means the €10 *is already the student fare*. Taking the minimum across
+        all categories and then applying Chasse's 50% discount to it billed a
+        €14,50 seat as €5 -- wrong twice over, because it halved a price that
+        was already discounted.
+
+        So: 'normaal' rows set the base price, a student/CJP row is used
+        directly as the fare, and subscription tiers are ignored entirely.
         """
         if not text:
-            return None, None
-        nums = re.findall(r"\d+(?:[.,]\d{1,2})?", text)
-        cents = [
-            c
-            for c in (euros_to_cents(n) for n in nums)
-            if c and c >= cls.MIN_PLAUSIBLE_CENTS
-        ]
-        if not cents:
-            return None, None
-        return min(cents), max(cents)
+            return None, None, None
+
+        cats = cls._price_categories(text)
+        if not cats:
+            return None, None, None
+
+        student = None
+        normal: list[int] = []
+        unlabelled: list[int] = []
+        for cents, label in cats:
+            if not cents or cents < cls.MIN_PLAUSIBLE_CENTS:
+                continue
+            if any(g in label for g in cls.IGNORED_PRICE_LABELS):
+                continue
+            if any(g in label for g in cls.STUDENT_PRICE_LABELS):
+                student = cents if student is None else min(student, cents)
+            elif "normaal" in label:
+                normal.append(cents)
+            else:
+                unlabelled.append(cents)
+
+        base = normal or unlabelled
+        if not base:
+            return None, None, student
+        return min(base), max(base), student

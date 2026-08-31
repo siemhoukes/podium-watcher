@@ -24,7 +24,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
-from .base import VenueAdapter, clean, parse_dutch_datetime
+from .base import VenueAdapter, clean, euros_to_cents as _euro_cents, parse_dutch_datetime
 
 log = logging.getLogger(__name__)
 
@@ -138,6 +138,37 @@ class VerkadefabriekAdapter(VenueAdapter):
             ),
             self._availability(wrapper),
         )
+
+    # The listing carries no price at all; the detail page does, labelled by
+    # category ("€ 26,00 Normaal", "€ 24,00 Supporter"). Fetching one page per
+    # show is only affordable because prices do not change, so the poller asks
+    # for this once per show and never again.
+    def fetch_detail_price(self, show: Show) -> tuple[int | None, int | None]:
+        html = self.fetcher.get_text(show.url)
+        if not html:
+            return None, None
+        soup = BeautifulSoup(html, "html.parser")
+        value = soup.select_one(".price .ticket-value")
+        if value is None:
+            return None, None
+
+        text = value.get_text(" ", strip=True).replace("\xa0", " ")
+        # "€ 26,00 Normaal € 24,00 Supporter" -> [(2600, 'normaal'), ...]
+        pairs = re.findall(r"€\s*([\d.,]+)\s*([A-Za-zÀ-ÿ ]*)", text)
+        priced = []
+        for amount, label in pairs:
+            cents = _euro_cents(amount)
+            if cents:
+                priced.append((cents, label.strip().lower()))
+        if not priced:
+            return None, None
+
+        # "Normaal" is the standard adult fare and the honest thing to show
+        # as the undiscounted price; fall back to the range otherwise.
+        for cents, label in priced:
+            if label.startswith("normaal"):
+                return cents, max(c for c, _ in priced)
+        return min(c for c, _ in priced), max(c for c, _ in priced)
 
     @staticmethod
     def _availability(wrapper) -> Snapshot:

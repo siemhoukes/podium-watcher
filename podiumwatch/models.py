@@ -43,6 +43,9 @@ class Snapshot:
     seats_total: int | None = None
     price_min_cents: int | None = None
     price_max_cents: int | None = None
+    # Some venues publish their own student/CJP fare. When they do it beats
+    # anything we could compute from a percentage rule.
+    price_student_cents: int | None = None
     note: str | None = None
 
     @property

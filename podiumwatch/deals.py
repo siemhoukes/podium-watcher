@@ -139,14 +139,24 @@ def window_opens_at(venue_id: str, starts_at: datetime | None) -> datetime | Non
 
 
 def deal_price_cents(
-    venue_id: str, price_min_cents: int | None
+    venue_id: str,
+    price_min_cents: int | None,
+    published_student_cents: int | None = None,
 ) -> int | None:
     """What you would actually pay, or None if it cannot be computed.
 
+    A price the venue itself publishes for students beats anything we could
+    derive from a discount rule, so it wins outright. Chasse lists
+    'scholier/student/CJP € 10,00' next to 'normaal € 14,50' -- applying the
+    50% rule on top of that would bill a €14,50 seat as €5.
+
     Percentage deals need a base price; without one we return None rather
-    than inventing a figure, so the UI can say "unknown" instead of showing
-    a confident wrong number.
+    than inventing a figure, so the UI can say "unknown" instead of showing a
+    confident wrong number.
     """
+    if published_student_cents:
+        return published_student_cents
+
     deal = DEALS.get(venue_id)
     if deal is None:
         return None

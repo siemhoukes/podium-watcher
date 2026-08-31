@@ -59,10 +59,20 @@ would poison the forecast.
 | MgE | client-rendered (SEO stubs only) | Tixly | needs its XHR endpoint found | todo |
 | Paradox / 013 | server-rendered, custom markup | — | not yet parsed | todo |
 
-**Peppered is the good case.** Chassé and Parktheater share markup exactly, so
-one `PepperedAdapter` serves both and the venue classes are just metadata. Every
-performance anchor carries `data-event-start`, `data-event-hall` and a `status-*`
-class, so nothing is guessed and availability has three levels, not two.
+**Peppered is the good case — but it has two shapes, and only reading one of
+them cost us every sold-out show.** An on-sale performance is an order anchor
+with `data-event-id`, `data-event-start`, `data-event-hall` and a `status-*`
+class. A sold-out one is a bare link to the production page with
+`class="status-info status-uitverkocht"` and *no data attributes at all* — its
+date, time and hall live on the card instead. Selecting only `a[data-event-id]`
+therefore did not record those as sold out, it dropped them entirely: Chassé and
+Parktheater both reported **zero** sold-out performances across 1,029 rows, and
+a show that sold out simply vanished, ending its fill curve without capturing
+the one event that matters most.
+
+That also rules out `data-event-id` as identity, since it disappears exactly
+when a show sells out. The key is production id + start time, observable in
+both shapes.
 
 **Verkadefabriek is the weak case.** A show on sale has an *empty*
 `.ticket-status` div; only a sold-out one has a badge. Absence-as-signal breaks
@@ -81,6 +91,46 @@ actually fetches.
 The blocker is that `{code}` is a hashed event reference, not the numeric event
 id we already store in `shows.ticket_ref`. Cracking that upgrades Tilburg (and
 any other Ticketmatic venue) from a binary flag to a real seat count.
+
+## Prices are labelled, and the labels matter
+
+Peppered writes the price block two ways. Sometimes it is a bare range
+(`€ 0,00–€ 13,00`) whose floor is a placeholder nobody pays. Sometimes it is
+labelled categories:
+
+```
+volloopplaats normaal € 14,50   scholier/student/CJP € 10,00   Cineville € 4,50
+```
+
+Reading that as "minimum €4,50" and applying Chassé's 50% billed a €14,50 seat
+as €2,25. Worse, taking the €10,00 as the base halved a fare **that was already
+the student price**. So: `normaal` rows set the base price, a student/CJP row is
+used *directly* as the fare, and subscription tiers (Cineville, BredaPas,
+Kidspas) are ignored — they are not open to a walk-up buyer.
+
+Where a venue publishes its own student fare, that always beats a computed one.
+
+Verkadefabriek publishes no price in its listing at all, but its detail pages do
+(`€ 26,00 Normaal`, `€ 24,00 Supporter`). The poller fetches those once per show,
+capped per run, and never again — prices do not change.
+
+**Tilburg publishes no price anywhere.** Not on the listing, not on the detail
+page. Its fares live inside the Ticketmatic widget, behind the same hashed event
+code that guards the seat counts. Until that is cracked, Tilburg shows its flat
+€13,50 deal fare and an honest "normale prijs onbekend".
+
+## Honesty about seat counts
+
+`seats_free` is still `NULL` for every venue — nobody exposes a live seat count
+in the listings yet. The dashboard therefore shows what was *observed* (the
+venue's own sale status: in verkoop / laatste kaarten / uitverkocht) and renders
+a seat line only when a real number exists. A trend sentence appears only once
+there are at least two observations spanning a few days; below that it says
+nothing rather than dressing one reading up as a forecast.
+
+Sold-out performances are kept in the database — they are the most informative
+thing that can happen to a show — and hidden from the list, since there is no
+point offering a ticket that does not exist.
 
 ## Running it
 

@@ -3,50 +3,62 @@
 {% block title %}Podium — komende voorstellingen{% endblock %}
 
 {% block navextra %}
-  <a href="?days={{ days }}&sort={{ 'date' if sort != 'date' else 'rank' }}&film={{ '0' if hide_film else '1' }}">
+  <a href="{{ qs(sort='date' if sort != 'date' else 'rank') }}">
     op {{ 'datum' if sort != 'date' else 'beste kans' }}
-  </a>
-  <a href="?days={{ days }}&sort={{ sort }}&film={{ '1' if hide_film else '0' }}">
-    {{ 'toon film' if hide_film else 'verberg film' }}
   </a>
 {% endblock %}
 
 {% block style %}
-  .rangebar {
-    display: flex; gap: 20px; margin-bottom: 30px;
-    font-family: var(--sans); font-size: 11.5px;
-    letter-spacing: .13em; text-transform: uppercase;
+  /* ---- filters ------------------------------------------------------- */
+  .filters {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 18px; margin-bottom: 4px;
   }
-  .rangebar a { color: var(--ink-3); text-decoration: none; }
-  .rangebar a:hover { color: var(--ink); }
-  .rangebar a.on { color: var(--oxblood); border-bottom: 1px solid var(--oxblood); }
+  .frow {
+    display: flex; align-items: baseline; gap: 10px 14px;
+    flex-wrap: wrap; margin-bottom: 9px;
+  }
+  .flabel {
+    font-family: var(--sans); font-size: 10.5px;
+    letter-spacing: .15em; text-transform: uppercase;
+    color: var(--ink-3); width: 62px; flex: 0 0 62px;
+  }
+  .chip {
+    font-family: var(--sans); font-size: 11.5px; letter-spacing: .06em;
+    text-decoration: none; color: var(--ink-2);
+    border: 1px solid var(--rule); padding: 3px 9px;
+    background: transparent;
+  }
+  .chip:hover { border-color: var(--ink-3); color: var(--ink); }
+  .chip.on {
+    color: var(--paper); background: var(--oxblood);
+    border-color: var(--oxblood);
+  }
+  .chip.plain { border-color: transparent; padding: 3px 0; }
+  .chip.plain.on { background: transparent; color: var(--oxblood); border-bottom: 1px solid var(--oxblood); }
 
+  .hiddennote {
+    font-family: var(--sans); font-size: 11px; color: var(--ink-3);
+    margin: 14px 0 26px; letter-spacing: .03em;
+  }
+
+  /* ---- entries ------------------------------------------------------- */
   .entry {
     display: grid;
-    grid-template-columns: 88px 1fr 128px;
+    grid-template-columns: 88px 1fr 138px;
     gap: 0 26px;
     padding: 20px 0 21px;
     border-bottom: 1px solid var(--rule);
   }
-  .entry:first-of-type { border-top: 1px solid var(--rule); }
 
-  /* date column */
   .when { padding-top: 4px; }
-  .when .d {
-    font-size: 18px; line-height: 1.15;
-    text-transform: lowercase;
-    white-space: nowrap;
-  }
+  .when .d { font-size: 18px; line-height: 1.15; text-transform: lowercase; white-space: nowrap; }
   .when .t {
     font-family: var(--sans); font-size: 11.5px;
     color: var(--ink-3); margin-top: 3px; letter-spacing: .05em;
   }
 
-  /* middle column */
-  .title {
-    font-size: 23px; line-height: 1.22; margin: 0;
-    font-weight: 400; letter-spacing: -.005em;
-  }
+  .title { font-size: 23px; line-height: 1.22; margin: 0; font-weight: 400; }
   .title a { text-decoration: none; }
   .title a:hover { color: var(--oxblood); }
   .sub { font-style: italic; color: var(--ink-2); font-size: 16px; margin-top: 2px; }
@@ -55,26 +67,27 @@
     margin-top: 9px; letter-spacing: .03em;
   }
   .where .walk { color: var(--oxblood); }
-  .outlook { margin-top: 6px; font-family: var(--sans); font-size: 12px; }
-  .outlook .why { color: var(--ink-3); font-family: var(--serif); font-size: 14px; font-style: italic; }
-  .conf {
-    font-family: var(--sans); font-size: 10px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--ink-3);
-    border: 1px solid var(--rule); padding: 1px 5px; margin-left: 4px;
-  }
 
-  /* price column */
+  .status { margin-top: 7px; font-family: var(--sans); font-size: 11.5px;
+            letter-spacing: .1em; text-transform: uppercase; }
+  .status.available { color: var(--green); }
+  .status.limited   { color: var(--oxblood); }
+  .status.unknown   { color: var(--ink-3); }
+  .seats { font-family: var(--sans); font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+  .trend { font-size: 14px; font-style: italic; color: var(--ink-3); margin-top: 4px; }
+
   .price { text-align: right; padding-top: 2px; }
   .fare { font-size: 27px; line-height: 1.05; color: var(--oxblood); }
-  .fare.unknown { color: var(--ink-3); font-size: 17px; font-style: italic; }
+  .fare.unknown { color: var(--ink-3); font-size: 16px; font-style: italic; }
   .dealname {
     font-family: var(--sans); font-size: 11px; color: var(--ink-2);
     margin-top: 4px; letter-spacing: .04em;
   }
-  .wasprice {
-    font-family: var(--sans); font-size: 11px; color: var(--ink-3);
-    margin-top: 2px;
+  .normal {
+    font-family: var(--sans); font-size: 11.5px; color: var(--ink-3);
+    margin-top: 3px;
   }
+  .normal s { text-decoration-color: var(--ink-3); }
   .window {
     font-family: var(--sans); font-size: 10.5px; margin-top: 9px;
     letter-spacing: .11em; text-transform: uppercase;
@@ -90,19 +103,57 @@
     .when .t { margin-top: 0; }
     .price { text-align: left; margin-top: 10px; }
     .title { font-size: 20px; }
+    .flabel { width: auto; flex: none; }
   }
 {% endblock %}
 
 {% block content %}
-  <div class="rangebar">
-    {% for d in [7, 14, 30, 60] %}
-      <a href="?days={{ d }}&sort={{ sort }}&film={{ '0' if hide_film else '1' }}"
-         class="{{ 'on' if days == d }}">{{ d }} dagen</a>
-    {% endfor %}
+  <div class="filters">
+    <div class="frow">
+      <span class="flabel">Podium</span>
+      <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle</a>
+      {% for vid, meta in venue_meta.items() %}
+        {% if vid != 'mge' %}
+          <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
+            {{ meta[0] }}{% if meta[1] != meta[0] %} · {{ meta[1] }}{% endif %}
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="frow">
+      <span class="flabel">Prijs</span>
+      <a class="chip {{ 'on' if not max_price }}" href="{{ qs(max=None) }}">alles</a>
+      {% for step in price_steps %}
+        <a class="chip {{ 'on' if max_price == step }}" href="{{ qs(max=step) }}">
+          t/m {{ step | euro }}
+        </a>
+      {% endfor %}
+      <a class="chip plain {{ 'on' if not hide_free }}" href="{{ qs(free='0' if hide_free else '1') }}">
+        {{ 'toon gratis' if hide_free else 'verberg gratis' }}
+      </a>
+    </div>
+
+    <div class="frow">
+      <span class="flabel">Periode</span>
+      {% for d in [7, 14, 30, 60] %}
+        <a class="chip plain {{ 'on' if days == d }}" href="{{ qs(days=d) }}">{{ d }} dagen</a>
+      {% endfor %}
+      <a class="chip plain {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
+        {{ 'toon film' if hide_film else 'verberg film' }}
+      </a>
+    </div>
   </div>
 
+  <p class="hiddennote">
+    {{ rows | length }} getoond{% if hidden_count > 0 %}, {{ hidden_count }} verborgen
+    (uitverkocht, film, jeugd, of geen kassa){% endif %}. Uitverkochte
+    voorstellingen blijven wél in de database staan — die zijn juist het
+    interessantst voor de voorspelling.
+  </p>
+
   {% if not rows %}
-    <p class="empty">Niets gevonden in deze periode.</p>
+    <p class="empty">Niets gevonden met deze filters.</p>
   {% endif %}
 
   {% for r in rows %}
@@ -128,19 +179,27 @@
           {% if r.hall %} · {{ r.hall }}{% endif %}
         </div>
 
-        <div class="outlook">
-          <span class="band band-{{ r.outlook.band }}">
-            {% if r.outlook.band == 'likely' %}Ruime kans
-            {% elif r.outlook.band == 'tight' %}Krap
-            {% else %}Onbekend{% endif %}
-          </span>
-          <span class="why">— {{ r.outlook.reason }}</span>
-          {% if r.outlook.confidence == 'collecting' %}
-            <span class="conf" title="Nog te weinig waarnemingen voor een betrouwbare voorspelling">
-              {{ r.outlook.observations }} waarneming{{ '' if r.outlook.observations == 1 else 'en' }}
-            </span>
-          {% endif %}
+        {# What the venue actually says right now -- an observation, not a
+           prediction. #}
+        <div class="status {{ r.state }}">
+          {% if r.state == 'available' %}In verkoop
+          {% elif r.state == 'limited' %}Laatste kaarten
+          {% elif r.state == 'sold_out' %}Uitverkocht
+          {% else %}Verkoopstatus onbekend{% endif %}
         </div>
+
+        {# Only shown when a venue really gave us a number. None do yet, so
+           this stays hidden rather than guessing at a seat count. #}
+        {% if r.seats_free is not none %}
+          <div class="seats">
+            nog {{ r.seats_free }}{% if r.seats_total %} van {{ r.seats_total }}{% endif %} plaatsen
+          </div>
+        {% endif %}
+
+        {# A trend needs history. Until there is some, say nothing. #}
+        {% if r.outlook.confidence != 'collecting' and r.outlook.band != 'unknown' %}
+          <div class="trend">{{ r.outlook.reason }}</div>
+        {% endif %}
       </div>
 
       <div class="price">
@@ -149,10 +208,22 @@
         {% else %}
           <div class="fare unknown">prijs onbekend</div>
         {% endif %}
-        <div class="dealname">{{ r.deal.label if r.deal else '' }}</div>
-        {% if r.base_price and r.fare and r.base_price > r.fare %}
-          <div class="wasprice">normaal vanaf {{ r.base_price | euro }}</div>
-        {% endif %}
+        <div class="dealname">
+          {% if r.published_student %}
+            studentenprijs van het podium
+          {% else %}
+            {{ r.deal.label if r.deal else '' }}
+          {% endif %}
+        </div>
+
+        <div class="normal">
+          {% if r.base_price %}
+            normaal <s>{{ r.base_price | euro }}{% if r.base_price_max and r.base_price_max > r.base_price %}–{{ r.base_price_max | euro }}{% endif %}</s>
+          {% else %}
+            normale prijs onbekend
+          {% endif %}
+        </div>
+
         {% if r.window_state == 'open' %}
           <div class="window open">venster open</div>
         {% elif r.window_state == 'soon' %}

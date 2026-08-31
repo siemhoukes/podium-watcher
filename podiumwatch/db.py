@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     seats_total      INTEGER,
     price_min_cents  INTEGER,
     price_max_cents  INTEGER,
+    price_student_cents INTEGER,
     note             TEXT
 );
 
@@ -74,7 +75,16 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created."""
+        have = {r["name"] for r in self.conn.execute("PRAGMA table_info(snapshots)")}
+        if "price_student_cents" not in have:
+            self.conn.execute(
+                "ALTER TABLE snapshots ADD COLUMN price_student_cents INTEGER"
+            )
 
     def close(self) -> None:
         self.conn.close()
@@ -145,8 +155,8 @@ class Database:
             """
             INSERT INTO snapshots (show_id, observed_at, state, seats_free,
                                    seats_total, price_min_cents,
-                                   price_max_cents, note)
-            VALUES (?,?,?,?,?,?,?,?)
+                                   price_max_cents, price_student_cents, note)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
             (
                 show_id,
@@ -156,10 +166,25 @@ class Database:
                 snap.seats_total,
                 snap.price_min_cents,
                 snap.price_max_cents,
+                snap.price_student_cents,
                 snap.note,
             ),
         )
         return changed
+
+    def known_price(self, venue_id: str, external_id: str) -> tuple | None:
+        """Most recent non-null price for a show, so it is fetched only once."""
+        row = self.conn.execute(
+            """
+            SELECT n.price_min_cents, n.price_max_cents
+            FROM snapshots n JOIN shows s ON s.id = n.show_id
+            WHERE s.venue_id = ? AND s.external_id = ?
+              AND n.price_min_cents IS NOT NULL
+            ORDER BY n.observed_at DESC LIMIT 1
+            """,
+            (venue_id, external_id),
+        ).fetchone()
+        return (row["price_min_cents"], row["price_max_cents"]) if row else None
 
     def record_run(
         self, venue_id: str, ok: bool, shows_found: int, error: str | None = None
