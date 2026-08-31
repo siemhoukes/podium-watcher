@@ -206,6 +206,29 @@ The toggles are plain POST forms, so they work without JavaScript and the
 state survives a reload. The dashboard's read path stays read-only; only these
 use a separate writable connection.
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q
+```
+
+78 tests over gzipped copies of the real pages (3.4 MB of HTML compressed to
+330 KB). Scrapers fail *silently* -- a venue redesigns, a selector stops
+matching, and the poller records "nothing on" for a fortnight -- so the
+adapter tests assert on values read off those fixtures and break loudly
+instead.
+
+Every bug this project has had is pinned as a test: sold-out performances
+being dropped rather than recorded, ids that changed when a show sold out,
+Cineville subscription prices masquerading as the base fare, a CJP advance
+discount masquerading as a student fare, a "discount" dearer than the door
+price, and undated January shows landing eight months in the past.
+
+The suite earned its keep immediately: it caught that the MgE adapter was
+discarding 40 of 264 performances -- every free event and every third-party
+sale, all of which carry `event_id: false`.
+
 ## Running it
 
 ```bash

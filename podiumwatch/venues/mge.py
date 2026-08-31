@@ -112,10 +112,17 @@ class MgeAdapter(VenueAdapter):
         )
 
         for time in event.get("times") or []:
-            event_id = time.get("event_id")
             starts_at = _parse_stamp(time.get("program_start"))
-            if not event_id or starts_at is None:
+            if starts_at is None:
                 continue
+
+            # Free events and third-party sales carry `event_id: false` -- 40
+            # of 264 performances. They are still real concerts in the
+            # building, so they get a slug+time key rather than being dropped.
+            event_id = time.get("event_id")
+            external_id = (
+                str(event_id) if event_id else f"{slug}-{starts_at:%Y%m%d%H%M}"
+            )
 
             label = (time.get("status_label") or "").strip().lower()
             state = STATUS_MAP.get(label, UNKNOWN)
@@ -130,7 +137,7 @@ class MgeAdapter(VenueAdapter):
             yield (
                 Show(
                     venue_id=self.venue_id,
-                    external_id=str(event_id),
+                    external_id=external_id,
                     title=title,
                     subtitle=subtitle,
                     starts_at=starts_at,
@@ -138,7 +145,7 @@ class MgeAdapter(VenueAdapter):
                     hall=_text(time.get("location")),
                     tags=tags,
                     ticket_url=time.get("ticket_link") or None,
-                    ticket_ref=str(event_id),
+                    ticket_ref=str(event_id) if event_id else None,
                 ),
                 Snapshot(
                     state=state,

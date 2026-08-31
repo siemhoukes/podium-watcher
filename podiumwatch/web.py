@@ -31,6 +31,10 @@ VENUE_META = {
     "parktheater": ("Parktheater", "Eindhoven", 25),
     "chasse": ("Chassé", "Breda", 20),
     "mge": ("Muziekgebouw", "Eindhoven", 25),
+    # No youth deal at these two; tracked because they are walkable and small
+    # enough to sell out.
+    "paradox": ("Paradox", "Tilburg", 5),
+    "013": ("013", "Tilburg", 5),
 }
 
 # Templates live at the project root, not inside the package, so Flask's
@@ -164,6 +168,7 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "rank": _rank(
                     look, fare, travel,
                     max(0.0, (starts_at - now).total_seconds() / 86400),
+                    has_deal=deal is not None,
                 ),
             }
         )
@@ -181,7 +186,8 @@ def _has_tag(tags: list[str], wanted: set[str]) -> bool:
     return any(t.strip().lower() in wanted for t in tags)
 
 
-def _rank(look, fare: int | None, travel: int, days_away: float) -> float:
+def _rank(look, fare: int | None, travel: int, days_away: float,
+          has_deal: bool = True) -> float:
     """Best bet = you can probably get in, it is cheap, close, and soon.
 
     'Soon' is in here because every deal is last-minute: a show three days
@@ -200,6 +206,12 @@ def _rank(look, fare: int | None, travel: int, days_away: float) -> float:
 
     # Decays over about six weeks.
     score += 0.15 * max(0.0, min(1.0, 1.0 - days_away / 42.0))
+
+    # Paradox and 013 run no youth deal. They are tracked because they are
+    # walkable and sell out, but this site is about discounts, and 161
+    # full-price 013 concerts would otherwise crowd out the cheap seats.
+    if not has_deal:
+        score -= 0.20
     return score
 
 
