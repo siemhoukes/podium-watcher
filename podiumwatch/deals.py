@@ -95,6 +95,9 @@ SALE_LINK_HINTS: dict[str, tuple[str, ...]] = {
     "tilburg": ("ticketmatic.com",),
     "chasse": ("/order/add/",),
     "parktheater": ("/order/add/",),
+    # MgE's feed marks third-party concerts "Externe verkoop" and links them
+    # to feverup.com and the like -- in the building, but not their sale.
+    "mge": ("tickets.mge.nl",),
 }
 
 
