@@ -4,7 +4,7 @@
 
 {% block style %}
   .calhead {
-    display: flex; align-items: baseline; gap: 22px; margin-bottom: 22px;
+    display: flex; align-items: baseline; gap: 22px; margin-bottom: 16px;
   }
   .calhead h2 {
     font-size: 25px; margin: 0; font-weight: 400;
@@ -17,6 +17,35 @@
   }
   .calhead a:hover { color: var(--oxblood); }
 
+  .calfilters {
+    display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: baseline;
+    padding-bottom: 16px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .chip {
+    font-family: var(--sans); font-size: 11.5px; letter-spacing: .06em;
+    text-decoration: none; color: var(--ink-2);
+    border: 1px solid var(--rule); padding: 3px 9px;
+  }
+  .chip:hover { border-color: var(--ink-3); color: var(--ink); }
+  .chip.on { color: var(--paper); background: var(--oxblood); border-color: var(--oxblood); }
+  .switch {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--sans); font-size: 11.5px; letter-spacing: .06em;
+    text-decoration: none; color: var(--ink-2);
+  }
+  .switch .track {
+    width: 26px; height: 14px; border: 1px solid var(--ink-3);
+    border-radius: 8px; position: relative; flex: 0 0 auto;
+  }
+  .switch .track i {
+    position: absolute; top: 2px; left: 2px; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--ink-3); transition: left .12s;
+  }
+  .switch.on .track { background: var(--oxblood); border-color: var(--oxblood); }
+  .switch.on .track i { left: 14px; background: var(--paper); }
+  .switch.on { color: var(--oxblood); }
+
   table.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
   table.cal th {
     font-family: var(--sans); font-size: 10.5px; letter-spacing: .14em;
@@ -25,41 +54,35 @@
   }
   table.cal td {
     border: 1px solid var(--rule);
-    vertical-align: top; height: 108px; padding: 6px 7px;
-    background: transparent;
+    vertical-align: top; height: 112px; padding: 6px 7px;
   }
   table.cal td.blank { border-color: transparent; }
   table.cal td.today { background: var(--paper-2); border-color: var(--ink-3); }
 
-  .daynum {
-    font-family: var(--sans); font-size: 11px;
-    color: var(--ink-3); margin-bottom: 5px;
-  }
+  .daynum { font-family: var(--sans); font-size: 11px; color: var(--ink-3); margin-bottom: 5px; }
   td.today .daynum { color: var(--oxblood); font-weight: 600; }
 
-  .chip {
+  .chipev {
     display: block; text-decoration: none;
     font-size: 13px; line-height: 1.25;
     padding: 2px 0 3px 7px; margin-bottom: 5px;
     border-left: 2px solid var(--ink-3);
     color: var(--ink);
-    overflow: hidden;
   }
-  .chip:hover { border-left-color: var(--oxblood); }
-  .chip .name {
-    display: block; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-  .chip.likely { border-left-color: var(--green); }
-  .chip.tight  { border-left-color: var(--oxblood); }
-  .chip .fare {
+  .chipev:hover { border-left-color: var(--oxblood); }
+  .chipev .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chipev .meta {
     font-family: var(--sans); font-size: 10.5px; color: var(--ink-3);
     letter-spacing: .04em;
   }
-  .more {
-    font-family: var(--sans); font-size: 10.5px;
-    color: var(--ink-3); padding-left: 7px;
-  }
+  /* Colour says how sure we are, not how it feels: a real fill rate earns a
+     colour, a single coarse reading does not. */
+  .chipev.known-likely { border-left-color: var(--green); }
+  .chipev.known-tight  { border-left-color: var(--oxblood); }
+  .chipev.starred { border-left-color: var(--oxblood); border-left-width: 4px; }
+  .chipev.starred .name::before { content: "★ "; color: var(--oxblood); }
+
+  .more { font-family: var(--sans); font-size: 10.5px; color: var(--ink-3); padding-left: 7px; }
 
   .legend {
     margin-top: 22px; display: flex; gap: 22px; flex-wrap: wrap;
@@ -76,15 +99,30 @@
 
   @media (max-width: 720px) {
     table.cal td { height: auto; min-height: 60px; }
-    .chip .name { white-space: normal; }
+    .chipev .name { white-space: normal; }
   }
 {% endblock %}
 
 {% block content %}
   <div class="calhead">
     <h2>{{ month_name }} {{ year }}</h2>
-    <a href="?year={{ prev_year }}&month={{ prev_month }}">← vorige</a>
-    <a href="?year={{ next_year }}&month={{ next_month }}">volgende →</a>
+    <a href="{{ qs(year=prev_year, month=prev_month) }}">← vorige</a>
+    <a href="{{ qs(year=next_year, month=next_month) }}">volgende →</a>
+  </div>
+
+  <div class="calfilters">
+    <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle podia</a>
+    {% for vid, meta in venue_meta.items() %}
+      <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
+        {{ meta[0] }}
+      </a>
+    {% endfor %}
+    <a class="switch {{ 'on' if only_starred }}" href="{{ qs(fav=None if only_starred else '1') }}">
+      <span class="track"><i></i></span> alleen favorieten
+    </a>
+    <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
+      <span class="track"><i></i></span> film tonen
+    </a>
   </div>
 
   <table class="cal">
@@ -106,11 +144,17 @@
               <td class="{{ 'today' if day == today.day and month == today.month and year == today.year }}">
                 <div class="daynum">{{ day }}</div>
                 {% for r in items[:3] %}
-                  <a class="chip {{ r.outlook.band }}" href="{{ r.url }}"
+                  {% set klass =
+                       'starred' if r.starred
+                       else ('known-' ~ r.outlook.band if r.outlook.seats_total else '') %}
+                  <a class="chipev {{ klass }}" href="{{ r.url }}"
                      target="_blank" rel="noopener"
                      title="{{ r.title }} — {{ r.venue }}, {{ r.city }} — {{ r.outlook.reason }}">
                     <span class="name">{{ r.title }}</span>
-                    <span class="fare">{{ r.fare | euro }} · {{ r.city }}</span>
+                    <span class="meta">
+                      {{ r.starts_at.strftime('%H:%M') }} ·
+                      {{ r.fare | euro }} · {{ r.city }}
+                    </span>
                   </a>
                 {% endfor %}
                 {% if items | length > 3 %}
@@ -125,9 +169,9 @@
   </table>
 
   <div class="legend">
-    <span><i class="swatch s-likely"></i>ruime kans</span>
-    <span><i class="swatch s-tight"></i>krap</span>
-    <span><i class="swatch s-unknown"></i>onbekend</span>
-    <span>film, jeugd en uitverkocht verborgen</span>
+    <span><i class="swatch s-likely"></i>ruim zitplaats</span>
+    <span><i class="swatch s-tight"></i>krap of favoriet</span>
+    <span><i class="swatch s-unknown"></i>geen stoelentelling</span>
+    <span>uitverkocht, jeugd en verborgen niet getoond</span>
   </div>
 {% endblock %}

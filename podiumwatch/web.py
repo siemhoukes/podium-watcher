@@ -370,6 +370,10 @@ def calendar_view():
     if not 1 <= month <= 12:
         month = now.month
 
+    venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
+    only_starred = request.args.get("fav", "0") == "1"
+    hide_film = request.args.get("film", "0") != "1"
+
     first = datetime(year, month, 1)
     last = datetime(year + (month == 12), (month % 12) + 1, 1)
     with connect() as conn:
@@ -379,7 +383,15 @@ def calendar_view():
     for r in rows:
         if r["outlook"].band == forecast.GONE or not r["deal_ok"]:
             continue
-        if _has_tag(r["tags"], FILM_TAGS | KIDS_TAGS | COURSE_TAGS):
+        if _has_tag(r["tags"], KIDS_TAGS | COURSE_TAGS):
+            continue
+        if hide_film and _has_tag(r["tags"], FILM_TAGS):
+            continue
+        if venues and r["venue_id"] not in venues:
+            continue
+        if only_starred and not r["starred"]:
+            continue
+        if r["hidden"] and not r["starred"]:
             continue
         by_day.setdefault(r["starts_at"].day, []).append(r)
     for day in by_day.values():
@@ -403,6 +415,10 @@ def calendar_view():
         prev_year=prev_year, prev_month=prev_month,
         next_year=next_year, next_month=next_month,
         today=now,
+        venues=venues,
+        venue_meta=VENUE_META,
+        only_starred=only_starred,
+        hide_film=hide_film,
         stats=_stats(),
     )
 
