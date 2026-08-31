@@ -50,13 +50,18 @@ class TilburgAdapter(VenueAdapter):
             if not found:
                 break
 
-            new = [(s, snap) for s, snap in found if s.external_id not in seen]
-            if not new:
-                # Pagination looping back on itself; stop rather than spin.
-                break
-            for show, snap in new:
+            added = 0
+            for show, snap in found:
+                # Checked inside the loop so a repeated id within one page is
+                # dropped too, not just one that appeared on an earlier page.
+                if show.external_id in seen:
+                    continue
                 seen.add(show.external_id)
                 results.append((show, snap))
+                added += 1
+            if not added:
+                # Pagination looping back on itself; stop rather than spin.
+                break
 
         log.info("tilburg: %s shows across %s pages", len(results), page)
         return results

@@ -83,7 +83,7 @@ class Database:
         now = utcnow()
         starts = show.starts_at.isoformat() if show.starts_at else None
         tags = json.dumps(show.tags, ensure_ascii=False) if show.tags else None
-        cur = self.conn.execute(
+        self.conn.execute(
             """
             INSERT INTO shows (venue_id, external_id, title, subtitle, starts_at,
                                url, hall, tags, ticket_url, ticket_ref,
@@ -115,13 +115,14 @@ class Database:
                 now,
             ),
         )
-        if cur.lastrowid:
-            row = self.conn.execute(
-                "SELECT id FROM shows WHERE venue_id=? AND external_id=?",
-                (show.venue_id, show.external_id),
-            ).fetchone()
-            return int(row["id"])
-        return int(cur.lastrowid)
+        # Always look the id up. On the DO UPDATE path sqlite does not set
+        # lastrowid dependably, and a wrong id here would hang snapshots off
+        # the wrong show.
+        row = self.conn.execute(
+            "SELECT id FROM shows WHERE venue_id=? AND external_id=?",
+            (show.venue_id, show.external_id),
+        ).fetchone()
+        return int(row["id"])
 
     def last_snapshot(self, show_id: int) -> sqlite3.Row | None:
         return self.conn.execute(
