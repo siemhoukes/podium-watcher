@@ -36,9 +36,17 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
 
     spent = 0
     for show, snap in upcoming:
-        if spent >= budget:
-            break
         cached = db.known_price(show.venue_id, show.external_id)
+
+        # Applying a price we already know costs nothing, so it happens for
+        # every show regardless of budget. Breaking out of the loop instead
+        # dropped Verkadefabriek from 85 priced shows to 40 -- the cache was
+        # never reached for anything past the budget.
+        if snap.price_min_cents is None and cached is not None:
+            snap.price_min_cents, snap.price_max_cents = cached
+
+        if spent >= budget:
+            continue
         try:
             if adapter.enrich(show, snap, cached_price=cached):
                 spent += 1
