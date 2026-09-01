@@ -143,11 +143,20 @@ venues. Its widget response is 5.7 MB where the event JSON ends by ~60 KB, so
 the fetch is capped: `get_text(max_bytes=…)` streams and stops early rather
 than pulling the bundle forty times a run.
 
-**Peppered does not offer the same.** Chassé and Parktheater expose only
-`/cart/add/`-style endpoints; a seat map appears once a basket exists, which
-would place a real hold on someone else's inventory. Their production pages do
-carry schema.org JSON-LD (`price`, `availability: SoldOut`), but no counts. So
-seat numbers there stay out of reach without reserving seats, and we do not.
+**Peppered has no seat counts, and no seat map either.** This was first
+written up as "the map sits behind a basket, so we won't hold seats to read
+it". That was wrong, and worth correcting: there is nothing behind the basket.
+
+Their whole site bundle (444 KB of JS) contains not one seat, seatingplan or
+availability path. The cart payload is `event` + `priceIdAmount` — a price
+category and a quantity, with **no seat identifier anywhere**. Price categories
+are ranks ("1e rang", "volloopplaats"), not seats. Chassé and Parktheater sell
+*n tickets in rank X* and assign places themselves.
+
+So holding a seat would not reveal a number; it would return a basket. The
+three-level status (`normaal` / `laatste_kaarten` / `uitverkocht`) is not a
+limit we accepted out of caution — it is genuinely everything the system
+tracks.
 
 ## Prices are labelled, and the labels matter
 
