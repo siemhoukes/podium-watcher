@@ -61,6 +61,10 @@ STATUS_MAP = {
     "wachtlijst": SOLD_OUT,  # a waiting list means the seats are gone
     "geannuleerd": UNKNOWN,
     "info": UNKNOWN,  # no direct sale, info page only
+    # First seen at De Doelen, where a third of the programme is sold by the
+    # Rotterdams Philharmonisch or Ticketmaster rather than the hall itself.
+    "externe_verkoop": AVAILABLE,
+    "vrij_entree": AVAILABLE,
 }
 
 

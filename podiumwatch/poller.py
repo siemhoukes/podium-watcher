@@ -48,7 +48,11 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
         for show, snap in pairs
         if show.starts_at is None or show.starts_at >= now
     ]
-    upcoming.sort(key=lambda p: p[0].starts_at or datetime.max)
+    # Shows with no start time yet sort first. TivoliVredenburg's listing
+    # carries a date but no clock time, so a show stays dateless -- and
+    # therefore invisible on the dashboard -- until its detail page is read.
+    # Sorting them last would have meant they never got budget at all.
+    upcoming.sort(key=lambda p: p[0].starts_at or datetime.min)
 
     # Anything already known and expensive to re-fetch goes in before the
     # budget is spent. Hall plans are ~450 KB and never change.

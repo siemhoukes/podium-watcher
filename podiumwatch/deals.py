@@ -73,6 +73,31 @@ DEALS: dict[str, Deal] = {
         percent_off=50,
         note="Alleen op de dag zelf, zolang er plaats is.",
     ),
+    "doelen": Deal(
+        venue_id="doelen",
+        label="€10 jongerentarief",
+        # Not a last-minute deal at all: bookable from the moment tickets go
+        # on sale, which is why the window is the whole run-up.
+        window_hours=24 * 365,
+        eligibility="t/m 30",
+        flat_cents=1000,
+        note="Beperkt aantal jongerenplaatsen; kan eerder op zijn dan de zaal.",
+    ),
+    "tivoli": Deal(
+        venue_id="tivoli",
+        label="€10 onder 30",
+        # Bookable from the moment tickets go on sale, like De Doelen.
+        window_hours=24 * 365,
+        eligibility="onder 30",
+        # Deliberately no flat_cents. The rate is real -- "Rang 1 Regulier
+        # € 46,- Onder 30 jaar € 10,-" -- but it is not on every concert:
+        # none of six sampled shows carried the label. Stamping €10 on all
+        # 600 rows would be the same mistake as quoting Verkadefabriek's flat
+        # fare on free events. So the €10 is only ever shown when the concert
+        # page actually published it.
+        selective=True,
+        note="Alleen bij geselecteerde concerten; max 6 per bestelling.",
+    ),
     "mge": Deal(
         venue_id="mge",
         label="€10 Spotticket",
@@ -98,6 +123,9 @@ SALE_LINK_HINTS: dict[str, tuple[str, ...]] = {
     # MgE's feed marks third-party concerts "Externe verkoop" and links them
     # to feverup.com and the like -- in the building, but not their sale.
     "mge": ("tickets.mge.nl",),
+    # A third of De Doelen's programme is sold by the Rotterdams
+    # Philharmonisch or Ticketmaster; the youth rate cannot reach those.
+    "doelen": ("/order/add/",),
 }
 
 

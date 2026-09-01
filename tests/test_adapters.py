@@ -364,3 +364,81 @@ def test_mge_enrichment_ignores_third_party_ticket_links():
     )
     assert adapter.enrich(show, Snapshot()) is False
     assert fetcher.requested == []
+
+
+# --------------------------------------------------------------------------
+# de Doelen and TivoliVredenburg
+# --------------------------------------------------------------------------
+
+def test_doelen_uses_the_peppered_parser():
+    from podiumwatch.venues.doelen import DoelenAdapter
+
+    pairs = DoelenAdapter(None)._parse_page(load_text("doelen_agenda.html.gz"))
+    assert len(pairs) > 30
+    assert all(s.venue_id == "doelen" for s, _ in pairs)
+
+
+def test_doelen_statuses_include_external_sales():
+    """A third of its programme is sold by the RPhO or Ticketmaster.
+
+    Those were landing as 'unknown' until the Peppered status map learned
+    `externe_verkoop` and `vrij_entree`.
+    """
+    from podiumwatch import deals
+    from podiumwatch.venues.doelen import DoelenAdapter
+
+    pairs = DoelenAdapter(None)._parse_page(load_text("doelen_agenda.html.gz"))
+
+    # Every row that carries a ticket link must resolve to a real state. The
+    # ones left unknown are card-only rows with no link at all -- cancelled
+    # concerts among them -- which is the honest answer for those.
+    with_link = [(s, n) for s, n in pairs if s.ticket_url]
+    assert with_link
+    assert all(n.state != "unknown" for _, n in with_link), (
+        "externe_verkoop and vrij_entree used to land here as unknown"
+    )
+
+    # Third-party sales carry no `data-event-id`, so they arrive through the
+    # card-only path with no ticket link -- and the box-office rule keeps the
+    # EUR 10 youth rate off them, which is the point.
+    without_link = [s for s, _ in pairs if not s.ticket_url]
+    assert without_link
+    assert all(not deals.deal_applies("doelen", s.ticket_url) for s in without_link)
+    assert all(deals.deal_applies("doelen", s.ticket_url) for s, _ in with_link)
+
+
+def test_tivoli_listing_leaves_the_date_unset():
+    """Its listing has a date but no clock time.
+
+    Storing that at midnight would repeat the Parktheater mistake, so a show
+    stays dateless -- and out of the dashboard -- until its page is read.
+    """
+    from podiumwatch.venues.tivoli import TivoliAdapter
+
+    pairs = TivoliAdapter(None)._parse_page(load_text("tivoli_agenda.html.gz"))
+    assert len(pairs) == 20
+    assert all(s.starts_at is None for s, _ in pairs)
+    assert all(s.external_id.isdigit() and s.title for s, _ in pairs)
+
+
+def test_tivoli_enrichment_reads_time_and_the_under_30_fare():
+    """'Rang 1 Regulier € 46,- Onder 30 jaar € 10,-' -- labels do the work."""
+    from datetime import datetime
+
+    from podiumwatch.models import Show, Snapshot
+    from podiumwatch.venues.tivoli import TivoliAdapter
+
+    adapter = TivoliAdapter(FakeFetcher(default=load_text("tivoli_event.html.gz")))
+    show = Show(venue_id="tivoli", external_id="1", title="t",
+                starts_at=None, url="https://www.tivolivredenburg.nl/agenda/1/x")
+    snap = Snapshot()
+    assert adapter.enrich(show, snap) is True
+    assert show.starts_at == datetime(2026, 9, 4, 19, 0)
+    assert snap.price_student_cents == 1000
+    assert snap.price_min_cents and snap.price_min_cents > 1000
+
+
+def test_tivoli_fare_is_the_under_30_price():
+    from podiumwatch import deals
+
+    assert deals.deal_price_cents("tivoli", 4600, 1000) == 1000

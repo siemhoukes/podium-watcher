@@ -118,3 +118,22 @@ def test_window_state():
 
 def test_unknown_venue_has_no_window():
     assert deals.window_state("paradox", datetime(2026, 9, 20, 20, 15))[0] == "unknown"
+
+
+def test_a_selective_deal_is_not_stamped_on_every_show():
+    """TivoliVredenburg's under-30 rate is real but not universal.
+
+    None of six sampled concerts carried the label, so a flat €10 across all
+    600 rows would repeat the Verkadefabriek mistake. The fare is quoted only
+    where the concert page actually published it.
+    """
+    assert deals.deal_price_cents("tivoli", 4600, 1000) == 1000   # published
+    assert deals.deal_price_cents("tivoli", 2600, None) == 2600   # not published
+    assert deals.deal_for("tivoli").selective is True
+    assert deals.deal_for("tivoli").flat_cents is None
+
+
+def test_doelen_youth_rate_is_flat_and_always_on():
+    """Unlike Tivoli, De Doelen advertises €10 on every concert it sells."""
+    assert deals.deal_price_cents("doelen", 4600) == 1000
+    assert deals.deal_for("doelen").selective is False

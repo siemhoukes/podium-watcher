@@ -31,6 +31,8 @@ VENUE_META = {
     "parktheater": ("Parktheater", "Eindhoven", 25),
     "chasse": ("Chassé", "Breda", 20),
     "mge": ("Muziekgebouw", "Eindhoven", 25),
+    "doelen": ("de Doelen", "Rotterdam", 50),
+    "tivoli": ("TivoliVredenburg", "Utrecht", 40),
     # No youth deal at these two; tracked because they are walkable and small
     # enough to sell out.
     "paradox": ("Paradox", "Tilburg", 5),
