@@ -29,7 +29,6 @@ age, so only the MgE one expires at 30.
 
 | Venue | City | Travel from Tilburg CS | Deal | Who | Window |
 |---|---|---|---|---|---|
-| TivoliVredenburg | Utrecht | ~40 min | **€10** (selective) | onder 30 | any time |
 | de Doelen | Rotterdam | ~50 min | **€10** | t/m 30 | any time |
 | Schouwburg & Concertzaal | Tilburg | 5 min walk | €13,50 incl. drink | t/m 26 **or student** | 48h, not sold out |
 | Verkadefabriek | Den Bosch | ~25 min | **€10** (film €8) | student, t/m 29 | 24h |
@@ -46,12 +45,22 @@ last-minute — both are bookable the moment tickets go on sale:
 - **de Doelen** advertises €10 on every concert it sells itself. A third of
   its listing is `externe_verkoop` (Rotterdams Philharmonisch, Ticketmaster),
   where the rate cannot reach, and the box-office rule already excludes those.
-- **TivoliVredenburg** is steeper still — "Rang 1 Regulier € 46,- Onder 30
-  jaar € 10,-" — but *selective*: none of six sampled concerts carried the
-  label. So it has no `flat_cents` and the €10 is quoted only where a concert
-  page actually published it. Stamping it on all 600 rows would repeat the
-  Verkadefabriek mistake. Its listing also has a date but no clock time, so a
-  show stays dateless, and off the dashboard, until its page is read.
+**TivoliVredenburg is built but switched off.** Its rate is the steepest
+anywhere — "Rang 1 Regulier € 46,- Onder 30 jaar € 10,-" — and the adapter
+works: 600 performances collected from a laptop. From the Pi, every request
+comes back `403` with `cf-mitigated: challenge`, whatever user agent is used,
+while de Doelen answers the same machine normally. That is Cloudflare bot
+protection the venue deliberately switched on, and getting round it would mean
+defeating an access control rather than reading a public page. So the adapter
+and its tests stay, `ADAPTERS` does not include it, and its rows were deleted
+rather than left to go stale.
+
+Two things it did teach the rest of the project. Its rate is *selective* —
+none of six sampled concerts carried the label — which is why selective deals
+now have no `flat_cents` and are marked "niet op elk concert" in the UI,
+making MgE's Spotticket honest too. And its listing has a date but no clock
+time, which is why an unresolved show is stored with no date at all rather
+than at midnight.
 
 Deliberately excluded: **Theater aan de Parade** (Den Bosch) — its youth price
 is age-only, t/m 25, with no student route, so it does not apply.

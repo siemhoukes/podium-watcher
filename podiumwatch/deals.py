@@ -96,7 +96,7 @@ DEALS: dict[str, Deal] = {
         # fare on free events. So the €10 is only ever shown when the concert
         # page actually published it.
         selective=True,
-        note="Alleen bij geselecteerde concerten; max 6 per bestelling.",
+        note="Alleen bij geselecteerde concerten; max 6 per bestelling. Niet automatisch te volgen: hun site weert de poller.",
     ),
     "mge": Deal(
         venue_id="mge",
