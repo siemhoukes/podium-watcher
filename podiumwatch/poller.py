@@ -50,6 +50,15 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
     ]
     upcoming.sort(key=lambda p: p[0].starts_at or datetime.max)
 
+    # Anything already known and expensive to re-fetch goes in before the
+    # budget is spent. Hall plans are ~450 KB and never change.
+    if hasattr(adapter, "_capacity_cache"):
+        adapter._capacity_cache = {
+            show.external_id: cap
+            for show, _ in upcoming
+            if (cap := db.known_capacity(show.venue_id, show.external_id))
+        }
+
     cached_for: dict[tuple[str, str], tuple | None] = {}
     for show, snap in upcoming:
         key = (show.venue_id, show.external_id)

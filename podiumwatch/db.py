@@ -216,6 +216,24 @@ class Database:
         ).fetchone()
         return (row["price_min_cents"], row["price_max_cents"]) if row else None
 
+    def known_capacity(self, venue_id: str, external_id: str) -> int | None:
+        """Last known hall size for a show.
+
+        The hall plan is ~450 KB and never changes for a given performance, so
+        it is fetched once and read back from here afterwards.
+        """
+        row = self.conn.execute(
+            """
+            SELECT n.seats_total
+            FROM snapshots n JOIN shows s ON s.id = n.show_id
+            WHERE s.venue_id = ? AND s.external_id = ?
+              AND n.seats_total IS NOT NULL
+            ORDER BY n.observed_at DESC LIMIT 1
+            """,
+            (venue_id, external_id),
+        ).fetchone()
+        return row["seats_total"] if row else None
+
     def record_run(
         self, venue_id: str, ok: bool, shows_found: int, error: str | None = None
     ) -> None:

@@ -36,6 +36,7 @@ import logging
 from datetime import datetime
 
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Show, Snapshot
+from . import tixly
 from .base import VenueAdapter, clean, euros_to_cents
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,41 @@ class MgeAdapter(VenueAdapter):
     name = "Muziekgebouw Eindhoven"
     city = "Eindhoven"
     travel_minutes = 25
+
+    # The feed is one request for everything, so the whole budget can go on
+    # live occupancy from the box office.
+    enrich_budget = 45
+
+    def enrich(self, show: Show, snap: Snapshot, cached_price=None) -> bool:
+        """Real seat occupancy, which the feed does not carry.
+
+        `takenseats` is a plain read of which seats are already gone and holds
+        nothing; the hall plan gives the denominator and is fetched once per
+        performance, then remembered.
+        """
+        if not show.ticket_url or "tickets.mge.nl" not in show.ticket_url:
+            return False
+        ids = tixly.ids_from_ticket_url(show.ticket_url)
+        if not ids:
+            return False
+        group_id, event_id = ids
+
+        taken = tixly.taken_seats(
+            self.fetcher, group_id, event_id, referer=show.ticket_url
+        )
+        if taken is None:
+            return True  # request spent, box office said nothing usable
+
+        total = self._capacity_cache.get(show.external_id)
+        if total is None:
+            total = tixly.hall_capacity(self.fetcher, group_id, event_id)
+        if total:
+            snap.seats_total = total
+            snap.seats_free = max(0, total - taken)
+        return True
+
+    # Filled by the poller from the database before enrichment runs.
+    _capacity_cache: dict[str, int] = {}
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
         resp = self.fetcher.get(FEED, headers={"Accept": "application/json"})

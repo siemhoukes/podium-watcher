@@ -319,3 +319,48 @@ def test_peppered_skips_cards_it_cannot_resolve_to_one_performance():
     show, snap = resolved[0]
     assert show.starts_at == datetime(2027, 3, 7, 20, 0), "two-digit year and time"
     assert snap.state == SOLD_OUT
+
+
+def test_mge_enrichment_reads_live_occupancy():
+    """The feed cannot say how full a concert is; the box office can.
+
+    Capacity is read once and then remembered, because the hall plan is ~450 KB
+    and never changes for a performance, while the taken count is re-read every
+    poll -- watching that move is the whole point.
+    """
+    from podiumwatch.models import Show, Snapshot
+
+    fetcher = FakeFetcher(pages={
+        "takenseats": load_text("tixly_takenseats.json.gz"),
+        "hallsvg": load_text("tixly_hallsvg.svg.gz"),
+    })
+    adapter = MgeAdapter(fetcher)
+    show = Show(
+        venue_id="mge", external_id="122191", title="t", starts_at=None,
+        url="https://mge.nl/agenda/x/",
+        ticket_url="https://tickets.mge.nl/nl/buyingflow/tickets/59882/122191/",
+    )
+    snap = Snapshot()
+    assert adapter.enrich(show, snap) is True
+    assert snap.seats_total == 391
+    assert 0 < snap.seats_free < 391
+
+    # With capacity already known, the hall plan is not fetched again.
+    adapter._capacity_cache = {"122191": 391}
+    fetcher.requested.clear()
+    adapter.enrich(show, Snapshot())
+    assert not [u for u in fetcher.requested if "hallsvg" in u]
+
+
+def test_mge_enrichment_ignores_third_party_ticket_links():
+    """'Externe verkoop' points at feverup.com; there is no box office to ask."""
+    from podiumwatch.models import Show, Snapshot
+
+    fetcher = FakeFetcher()
+    adapter = MgeAdapter(fetcher)
+    show = Show(
+        venue_id="mge", external_id="x", title="t", starts_at=None,
+        url="u", ticket_url="https://feverup.com/m/532823",
+    )
+    assert adapter.enrich(show, Snapshot()) is False
+    assert fetcher.requested == []
