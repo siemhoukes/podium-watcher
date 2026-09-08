@@ -262,7 +262,9 @@ def digest_rows(conn, days: int = DIGEST_DAYS, now: datetime | None = None) -> l
         # Same filters as the dashboard. Without them the digest led with four
         # free showings of a children's play and two screenings of Minoes,
         # because sorting by price alone rewards exactly the wrong things.
-        if categories.has_tag(tags, categories.ALWAYS_HIDDEN | categories.FILM):
+        if categories.has_tag(tags, categories.KIDS | categories.FILM):
+            continue
+        if categories.is_course(row["title"], tags):
             continue
         latest = conn.execute(
             "SELECT state, seats_free, seats_total, price_min_cents,"

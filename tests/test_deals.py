@@ -137,3 +137,19 @@ def test_doelen_youth_rate_is_flat_and_always_on():
     """Unlike Tivoli, De Doelen advertises €10 on every concert it sells."""
     assert deals.deal_price_cents("doelen", 4600) == 1000
     assert deals.deal_for("doelen").selective is False
+
+
+def test_a_course_titled_as_one_is_filtered_even_without_the_tag():
+    """MgE files 'Cursus: Een goed gestemd gehoor' under Klassiek.
+
+    The tag filter never saw it, so it turned up as the biggest saving on the
+    board. 'Masterclass' is deliberately left alone -- MgE's masterclasses are
+    talk shows worth going to.
+    """
+    from podiumwatch import categories
+
+    assert categories.is_course("Cursus: Een goed gestemd gehoor", ["Klassiek"])
+    assert categories.is_course("Workshopdag met Lucas van Merwijk", ["Global"])
+    assert categories.is_course("Iets", ["Cursus"])
+    assert not categories.is_course("Masterclass: Het geheim van Peter Bosz", ["Pop"])
+    assert not categories.is_course("Queen Symphonic", ["Klassiek"])

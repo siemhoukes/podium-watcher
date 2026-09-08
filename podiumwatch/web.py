@@ -243,7 +243,8 @@ def index():
     rows = [r for r in rows if r["outlook"].band != forecast.GONE]
     # Externally sold events are in the building but not part of any deal.
     rows = [r for r in rows if r["deal_ok"]]
-    rows = [r for r in rows if not _has_tag(r["tags"], KIDS_TAGS | COURSE_TAGS)]
+    rows = [r for r in rows if not _has_tag(r["tags"], KIDS_TAGS)
+            and not categories.is_course(r["title"], r["tags"])]
     if hide_film:
         rows = [r for r in rows if not _has_tag(r["tags"], FILM_TAGS)]
     if venues:
@@ -381,7 +382,9 @@ def calendar_view():
     for r in rows:
         if r["outlook"].band == forecast.GONE or not r["deal_ok"]:
             continue
-        if _has_tag(r["tags"], KIDS_TAGS | COURSE_TAGS):
+        if _has_tag(r["tags"], KIDS_TAGS):
+            continue
+        if categories.is_course(r["title"], r["tags"]):
             continue
         if hide_film and _has_tag(r["tags"], FILM_TAGS):
             continue

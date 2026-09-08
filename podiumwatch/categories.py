@@ -19,5 +19,20 @@ COURSES = {"cursus", "club", "workshop"}
 ALWAYS_HIDDEN = KIDS | COURSES
 
 
+# Some venues tag a course by genre and only say "Cursus" in the title.
+# MgE files "Cursus: Een goed gestemd gehoor" under Klassiek, so the tag
+# filter never sees it. Deliberately narrow: "Masterclass" is left alone,
+# because MgE's masterclasses are talk shows worth going to.
+COURSE_TITLE_PREFIXES = ("cursus", "workshopdag", "workshop:")
+
+
 def has_tag(tags: list[str] | None, wanted: set[str]) -> bool:
     return any((t or "").strip().lower() in wanted for t in (tags or []))
+
+
+def is_course(title: str | None, tags: list[str] | None = None) -> bool:
+    """A course or workshop rather than a performance."""
+    if has_tag(tags, COURSES):
+        return True
+    low = (title or "").strip().lower()
+    return low.startswith(COURSE_TITLE_PREFIXES)
