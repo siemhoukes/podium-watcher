@@ -442,3 +442,51 @@ def test_tivoli_fare_is_the_under_30_price():
     from podiumwatch import deals
 
     assert deals.deal_price_cents("tivoli", 4600, 1000) == 1000
+
+
+# --------------------------------------------------------------------------
+# Theater Rotterdam
+# --------------------------------------------------------------------------
+
+def test_theater_rotterdam_uses_the_peppered_parser():
+    from podiumwatch.venues.theaterrotterdam import TheaterRotterdamAdapter
+
+    pairs = TheaterRotterdamAdapter(None)._parse_page(
+        load_text("theaterrotterdam_agenda.html.gz")
+    )
+    assert len(pairs) > 10
+    assert all(s.venue_id == "theaterrotterdam" for s, _ in pairs)
+    # Identity is production + start time, so a run of twelve nights is
+    # twelve rows rather than one that overwrites itself.
+    assert len({s.external_id for s, _ in pairs}) == len(pairs)
+
+
+def test_theater_rotterdam_reads_the_age_rate_as_a_discount_not_a_base_price():
+    """'Standaard EUR 22,00 ... t/m 30 jaar EUR 10,00'.
+
+    Labelled by age rather than by status, so it fell through to the
+    unlabelled bucket and became the base price: the show then reported a
+    EUR 10 door price and a EUR 0 saving, hiding the best fare on the board.
+    """
+    from podiumwatch.venues.peppered import PepperedAdapter
+
+    assert PepperedAdapter._prices(
+        "Rang 1 Standaard \u20ac 22,00 Rotterdampas \u20ac 17,00 "
+        "t/m 30 jaar \u20ac 10,00"
+    ) == (2200, 2200, 1000)
+
+
+def test_theater_rotterdam_dates_survive_a_midday_start():
+    """'ma 7 sep 12:00' used to parse as the year 2012.
+
+    A two-digit year no longer counts without its apostrophe, so a lunchtime
+    performance stays in the future instead of vanishing into the past.
+    """
+    from podiumwatch.venues.theaterrotterdam import TheaterRotterdamAdapter
+
+    pairs = TheaterRotterdamAdapter(None)._parse_page(
+        load_text("theaterrotterdam_agenda.html.gz")
+    )
+    dated = [s.starts_at for s, _ in pairs if s.starts_at]
+    assert dated
+    assert all(d.year >= 2025 for d in dated), "a start time was read as a year"

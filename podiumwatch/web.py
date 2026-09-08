@@ -32,6 +32,7 @@ VENUE_META = {
     "chasse": ("Chassé", "Breda", 20),
     "mge": ("Muziekgebouw", "Eindhoven", 25),
     "doelen": ("de Doelen", "Rotterdam", 50),
+    "theaterrotterdam": ("Theater Rotterdam", "Rotterdam", 65),
     "tivoli": ("TivoliVredenburg", "Utrecht", 40),
     # No youth deal at these two; tracked because they are walkable and small
     # enough to sell out.

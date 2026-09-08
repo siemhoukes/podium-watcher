@@ -30,6 +30,7 @@ age, so only the MgE one expires at 30.
 | Venue | City | Travel from Tilburg CS | Deal | Who | Window |
 |---|---|---|---|---|---|
 | de Doelen | Rotterdam | ~50 min | **€10** | t/m 30 | any time |
+| Theater Rotterdam | Rotterdam | ~65 min | **€10** | t/m 30, **no card needed** | any time |
 | Schouwburg & Concertzaal | Tilburg | 5 min walk | €13,50 incl. drink | t/m 26 **or student** | 48h, not sold out |
 | Verkadefabriek | Den Bosch | ~25 min | **€10** (film €8) | student, t/m 29 | 24h |
 | Muziekgebouw Eindhoven | Eindhoven | ~25 min | €10 Spotticket | under 30 | 24h, selected shows |
@@ -39,12 +40,18 @@ age, so only the MgE one expires at 30.
 Tracked without a deal, because they are walkable and small enough to sell out:
 **Paradox** (jazz, 175 cap) and **013**.
 
-The two further-afield additions are the only ones whose discount is *not*
-last-minute — both are bookable the moment tickets go on sale:
+The three further-afield additions are the only ones whose discount is *not*
+last-minute — all are bookable the moment tickets go on sale:
 
 - **de Doelen** advertises €10 on every concert it sells itself. A third of
   its listing is `externe_verkoop` (Rotterdams Philharmonisch, Ticketmaster),
   where the rate cannot reach, and the box-office rule already excludes those.
+- **Theater Rotterdam** is the only venue here that does not ask what card
+  you hold: "Of je nu student bent, CJP-er, of al afgestudeerd: iedereen tot
+  en met 30 jaar krijgt hetzelfde kortingstarief." Its agenda prints both a
+  labelled fare table and a bare range beside it; reading the range made the
+  €10 youth rate look like the door price, so the parser now prefers the
+  table. See `_price_text`.
 **TivoliVredenburg is built but switched off.** Its rate is the steepest
 anywhere — "Rang 1 Regulier € 46,- Onder 30 jaar € 10,-" — and the adapter
 works: 600 performances collected from a laptop. From the Pi, every request

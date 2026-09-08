@@ -139,11 +139,7 @@ class PepperedAdapter(VenueAdapter):
             (href or self.programme_url)
         )
 
-        price_el = card.select_one(".price")
-        price_min, price_max, price_student = self._prices(
-            cls_norm(price_el.get_text(" ", strip=True))
-            if price_el else None
-        )
+        price_min, price_max, price_student = self._prices(self._price_text(card))
 
         prod_type = None
         for cls in card.get("class") or []:
@@ -314,8 +310,40 @@ class PepperedAdapter(VenueAdapter):
     IGNORED_PRICE_LABELS = (
         "cineville", "kidspas", "bredapas", "abonnement", "kinderen",
         "begeleider", "vriend", "donateur",
+        # Rotterdam city passes, and Theater Rotterdam's own sale tier. Both
+        # are real fares, neither is one you can walk up and buy.
+        "rotterdampas", "sirenesale",
     )
-    STUDENT_PRICE_LABELS = ("student", "scholier", "cjp")
+    # Theater Rotterdam labels its youth rate by age rather than by status --
+    # "t/m 30 jaar € 10,00" beside "Standaard € 22,00". Read as an unlabelled
+    # category it became the base price, so the show reported a €10 door price
+    # and a €0 saving: the best deal on the board, rendered invisible.
+    STUDENT_PRICE_LABELS = ("student", "scholier", "cjp", "jongeren")
+    YOUTH_AGE_LABEL = re.compile(r"t/m\s*\d{2}\s*jaar|onder\s*(?:de\s*)?\d{2}|<\s*\d{2}")
+
+    # Labels that mark the ordinary walk-up fare. Theater Rotterdam says
+    # "Standaard" where the others say "normaal".
+    BASE_PRICE_LABELS = ("normaal", "standaard")
+
+    @staticmethod
+    def _price_text(card) -> str | None:
+        """The labelled fare table beats the bare range printed beside it.
+
+        Theater Rotterdam renders both: a popover table naming every fare
+        ("Standaard € 22,00 / Rotterdampas € 17,00 / t/m 30 jaar € 10,00")
+        and a summary div showing only its span ("€ 10,00–€ 22,00"). The
+        summary sits first in the markup, so `.price` selected the shape with
+        no labels -- and the €10 youth rate was read as the door price, which
+        made the best deal on the board look like no deal at all.
+
+        Chasse, Parktheater and de Doelen print no such table, so they keep
+        falling through to `.price` exactly as before.
+        """
+        tables = [t for t in card.find_all("table") if t.select_one("td.price")]
+        if tables:
+            return cls_norm(" ".join(t.get_text(" ", strip=True) for t in tables))
+        el = card.select_one(".price")
+        return cls_norm(el.get_text(" ", strip=True)) if el else None
 
     @classmethod
     def _price_categories(cls, text: str) -> list[tuple[int, str]]:
@@ -371,9 +399,10 @@ class PepperedAdapter(VenueAdapter):
                 continue
             if any(g in label for g in cls.IGNORED_PRICE_LABELS):
                 continue
-            if any(g in label for g in cls.STUDENT_PRICE_LABELS):
+            if any(g in label for g in cls.STUDENT_PRICE_LABELS) or \
+                    cls.YOUTH_AGE_LABEL.search(label):
                 student = cents if student is None else min(student, cents)
-            elif "normaal" in label:
+            elif any(g in label for g in cls.BASE_PRICE_LABELS):
                 normal.append(cents)
             else:
                 unlabelled.append(cents)

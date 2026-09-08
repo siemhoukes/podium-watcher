@@ -83,6 +83,17 @@ DEALS: dict[str, Deal] = {
         flat_cents=1000,
         note="Beperkt aantal jongerenplaatsen; kan eerder op zijn dan de zaal.",
     ),
+    "theaterrotterdam": Deal(
+        venue_id="theaterrotterdam",
+        label="€10 t/m 30 jaar",
+        # No window at all: bookable the moment tickets go on sale.
+        window_hours=24 * 365,
+        # The only venue here that does not care what card you hold. Their
+        # own words: "Of je nu student bent, CJP-er, of al afgestudeerd."
+        eligibility="t/m 30, geen pas nodig",
+        flat_cents=1000,
+        note="Geldt op alle voorstellingen, ook ver vooruit te boeken.",
+    ),
     "tivoli": Deal(
         venue_id="tivoli",
         label="€10 onder 30",
@@ -126,6 +137,7 @@ SALE_LINK_HINTS: dict[str, tuple[str, ...]] = {
     # A third of De Doelen's programme is sold by the Rotterdams
     # Philharmonisch or Ticketmaster; the youth rate cannot reach those.
     "doelen": ("/order/add/",),
+    "theaterrotterdam": ("/order/add/",),
 }
 
 

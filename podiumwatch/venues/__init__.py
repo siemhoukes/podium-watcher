@@ -17,6 +17,7 @@ from .mge import MgeAdapter
 from .paradox import ParadoxAdapter
 from .parktheater import ParktheaterAdapter
 from .poppodium013 import Poppodium013Adapter
+from .theaterrotterdam import TheaterRotterdamAdapter
 from .tilburg import TilburgAdapter
 from .tivoli import TivoliAdapter
 from .verkadefabriek import VerkadefabriekAdapter
@@ -28,6 +29,7 @@ ADAPTERS = [
     VerkadefabriekAdapter,
     MgeAdapter,
     DoelenAdapter,
+    TheaterRotterdamAdapter,
     ParadoxAdapter,
     Poppodium013Adapter,
 ]
@@ -40,6 +42,7 @@ __all__ = [
     "VerkadefabriekAdapter",
     "MgeAdapter",
     "DoelenAdapter",
+    "TheaterRotterdamAdapter",
     "TivoliAdapter",
     "ParadoxAdapter",
     "Poppodium013Adapter",

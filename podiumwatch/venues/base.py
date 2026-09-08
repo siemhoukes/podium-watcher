@@ -30,7 +30,11 @@ _DATE_RE = re.compile(
     # Peppered writes the year two ways: "2026" and "’26" with a curly
     # apostrophe. Missing the short form silently threw dates a whole year:
     # "wo 2 sep ’27" fell through to inference and came back as 2026.
-    r"(?:\s*[’'‘`´]?\s*(?P<year>\d{4}|\d{2})\b)?",
+    #
+    # The short form *requires* the apostrophe. Without it, "ma 7 sep 12:00"
+    # reads its own start time as a two-digit year and lands in 2012 -- a date
+    # far in the past, so the performance drops out of every view silently.
+    r"(?:\s*(?:(?P<year>\d{4})|[’'‘`´]\s*(?P<short_year>\d{2}))\b)?",
     re.IGNORECASE,
 )
 _TIME_RE = re.compile(r"(?P<h>\d{1,2})[:.](?P<m>\d{2})")
@@ -57,9 +61,12 @@ def parse_dutch_datetime(
     day = int(m.group("day"))
     now = today or datetime.now()
 
-    if m.group("year"):
-        raw_year = m.group("year")
-        year = int(raw_year) if len(raw_year) == 4 else 2000 + int(raw_year)
+    if m.group("year") or m.group("short_year"):
+        year = (
+            int(m.group("year"))
+            if m.group("year")
+            else 2000 + int(m.group("short_year"))
+        )
     else:
         # Agendas only list upcoming shows, so a date already past this year
         # must mean next year.
