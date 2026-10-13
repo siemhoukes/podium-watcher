@@ -105,7 +105,9 @@ def prices(event: dict) -> tuple[int | None, int | None]:
     fare needs a Vriend voucher -- so they are not the normal price.
     """
     open_prices: list[int] = []
-    for contingent in event.get("prices", {}).get("contingents", []):
+    # `"prices": null` happens -- five Verkadefabriek jazz concerts in October
+    # 2026 -- and `.get("prices", {})` only covers a missing key.
+    for contingent in (event.get("prices") or {}).get("contingents") or []:
         for pt in contingent.get("pricetypes", []):
             channels = pt.get("saleschannels") or []
             gated = any(ch.get("conditions") for ch in channels)

@@ -36,16 +36,16 @@ def test_cancelled_shows_go_and_stale_ones_are_dated(tmp_path, monkeypatch):
 
     # Chasse: a complete run an hour ago listed one show but not the other.
     c.execute(
-        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found)"
-        " VALUES ('chasse', ?, 1, 1)", (iso(now_utc - timedelta(hours=1)),),
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, complete)"
+        " VALUES ('chasse', ?, 1, 1, 1)", (iso(now_utc - timedelta(hours=1)),),
     )
     show("chasse", "a", "Nog te zien", iso(now_utc - timedelta(minutes=55)))
     show("chasse", "b", "Geschrapt", iso(now_utc - timedelta(days=9)))
 
     # Parktheater: stuck behind its waiting room for two days.
     c.execute(
-        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found)"
-        " VALUES ('parktheater', ?, 1, 1)",
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, complete)"
+        " VALUES ('parktheater', ?, 1, 1, 1)",
         (iso(now_utc - timedelta(days=2, minutes=5)),),
     )
     c.execute(

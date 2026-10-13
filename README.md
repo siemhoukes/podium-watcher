@@ -326,6 +326,13 @@ changed:
   …" next to its status.
 - **And it mails** — see *Alerts* above.
 
+Since October 2026 **Chassé and Theater Rotterdam answer two pages and then
+BunnyCDN's JavaScript check.** The poller takes what they serve and logs the
+run as incomplete; it does not try to get past the check. Shows on the pages
+it cannot read stay on the dashboard with the date their status was last
+read, rather than vanishing, because only a run that read the whole listing
+(`poll_runs.complete`) is allowed to decide a show is gone.
+
 All times are Europe/Amsterdam (`clock.py`). The Pi runs on Europe/London, so
 reading its wall clock opened every 24-hour window an hour late.
 

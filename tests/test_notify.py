@@ -210,9 +210,9 @@ def test_a_failed_mail_is_retried_next_poll(conn, monkeypatch, mailbox):
 
 def poll_run(conn, venue, found, at, ok=1, error=None):
     conn.execute(
-        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
-        " VALUES (?,?,?,?,?)",
-        (venue, at.isoformat(), ok, found, error),
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error,"
+        " complete) VALUES (?,?,?,?,?,?)",
+        (venue, at.isoformat(), ok, found, error, 1 if ok and not error else 0),
     )
 
 

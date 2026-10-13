@@ -164,6 +164,8 @@ def test_runs_record_why_they_failed_or_fell_short(tmp_path, monkeypatch):
     runs = {r["venue_id"]: r for r in conn.execute("SELECT * FROM poll_runs")}
     assert runs["leeg"]["ok"] == 0 and "Geen voorstellingen" in runs["leeg"]["error"]
     assert runs["half"]["ok"] == 1 and "Pagina 3" in runs["half"]["error"]
+    # Shows read, but not the whole listing: never a reference for "vanished".
+    assert runs["half"]["complete"] == 0
     assert runs["dicht"]["ok"] == 0 and "wachtrij" in runs["dicht"]["error"]
 
     # Stamped before the fetch, so every show the run saw is newer than it.

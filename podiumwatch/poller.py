@@ -150,7 +150,7 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             if pairs:
                 db.record_run(
                     adapter.venue_id, ok=True, shows_found=len(pairs), error=problems,
-                    started_at=started,
+                    started_at=started, complete=not problems,
                 )
             else:
                 db.record_run(

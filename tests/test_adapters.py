@@ -490,3 +490,12 @@ def test_theater_rotterdam_dates_survive_a_midday_start():
     dated = [s.starts_at for s, _ in pairs if s.starts_at]
     assert dated
     assert all(d.year >= 2025 for d in dated), "a start time was read as a year"
+
+
+
+def test_ticketmatic_event_with_null_prices_does_not_crash():
+    """`"prices": null` on five Verkadefabriek jazz concerts, October 2026."""
+    from podiumwatch.venues import ticketmatic
+
+    assert ticketmatic.prices({"prices": None}) == (None, None)
+    assert ticketmatic.prices({}) == (None, None)

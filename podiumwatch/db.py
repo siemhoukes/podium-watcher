@@ -87,7 +87,10 @@ CREATE TABLE IF NOT EXISTS poll_runs (
     started_at  TEXT NOT NULL,
     ok          INTEGER NOT NULL,
     shows_found INTEGER NOT NULL,
-    error       TEXT
+    error       TEXT,
+    -- 1 when the run read the venue's whole listing. NULL on runs logged
+    -- before October 2026, which could be cut short without saying so.
+    complete    INTEGER
 );
 """
 
@@ -115,6 +118,9 @@ class Database:
             self.conn.execute(
                 "ALTER TABLE snapshots ADD COLUMN price_student_cents INTEGER"
             )
+        runs = {r["name"] for r in self.conn.execute("PRAGMA table_info(poll_runs)")}
+        if "complete" not in runs:
+            self.conn.execute("ALTER TABLE poll_runs ADD COLUMN complete INTEGER")
         self._rekey_paradox()
 
     def _rekey_paradox(self) -> None:
@@ -287,6 +293,7 @@ class Database:
         shows_found: int,
         error: str | None = None,
         started_at: str | None = None,
+        complete: bool = False,
     ) -> None:
         """Log one adapter run.
 
@@ -296,9 +303,11 @@ class Database:
         to work out which shows a run had not seen.
         """
         self.conn.execute(
-            "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
-            " VALUES (?,?,?,?,?)",
-            (venue_id, started_at or utcnow(), 1 if ok else 0, shows_found, error),
+            "INSERT INTO poll_runs"
+            " (venue_id, started_at, ok, shows_found, error, complete)"
+            " VALUES (?,?,?,?,?,?)",
+            (venue_id, started_at or utcnow(), 1 if ok else 0, shows_found, error,
+             1 if complete else 0),
         )
 
     def commit(self) -> None:

@@ -59,9 +59,6 @@ VANISHED_HORIZON = timedelta(days=60)
 VANISHED_MIN = 10
 VANISHED_SHARE = 0.2
 
-# Runs logged before October 2026 were stamped when they *finished*, seconds
-# after their last upsert. This margin lets those serve as a reference too.
-SEEN_MARGIN = timedelta(minutes=10)
 
 
 def venue_health(
@@ -96,25 +93,20 @@ def seen_cutoffs(conn) -> dict[str, str]:
     """{venue: stamp}: a show last seen before its venue's stamp was not
     listed by that venue's latest complete run.
 
-    A run is complete when it succeeded without noting a problem; a run cut
-    short halfway says nothing about which shows are really gone. Stamps are
-    in the stored format (UTC ISO), so they compare directly with `last_seen`.
+    Only runs that *say* they read the whole listing count. Runs from before
+    October 2026 cannot say so -- the Peppered ones were reading one page in
+    twenty and logging success -- so a venue with no complete run since then
+    hides nothing, and its unseen shows are shown with their age instead.
+    Stamps are stored UTC ISO, so they compare directly with `last_seen`.
     """
     try:
         rows = conn.execute(
             "SELECT venue_id, MAX(started_at) t FROM poll_runs"
-            " WHERE ok = 1 AND error IS NULL GROUP BY venue_id"
+            " WHERE complete = 1 GROUP BY venue_id"
         ).fetchall()
     except sqlite3.OperationalError:
         return {}
-    out = {}
-    for r in rows:
-        try:
-            stamp = datetime.fromisoformat(r["t"]) - SEEN_MARGIN
-        except (TypeError, ValueError):
-            continue
-        out[r["venue_id"]] = stamp.isoformat(timespec="seconds")
-    return out
+    return {r["venue_id"]: r["t"] for r in rows if r["t"]}
 
 
 def vanished_counts(conn, now: datetime) -> dict[str, tuple[int, int]]:

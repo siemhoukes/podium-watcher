@@ -138,11 +138,11 @@ def utc(minutes_ago: float) -> str:
     return stamp.isoformat(timespec="seconds")
 
 
-def complete_run(c, venue, minutes_ago, found):
+def complete_run(c, venue, minutes_ago, found, complete=1):
     c.execute(
-        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
-        " VALUES (?,?,1,?,NULL)",
-        (venue, utc(minutes_ago), found),
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error,"
+        " complete) VALUES (?,?,1,?,NULL,?)",
+        (venue, utc(minutes_ago), found, complete),
     )
 
 
@@ -173,13 +173,15 @@ def test_a_few_cancellations_are_not_an_alarm(full):
     assert only(full, "chasse")["status"] == health.OK
 
 
-def test_a_run_stamped_after_its_upserts_still_counts_as_listing_them(full):
-    """Runs logged before October 2026 were stamped when they finished.
+def test_a_run_from_before_the_fix_never_decides_what_vanished(full):
+    """Old runs logged success while reading one page in twenty.
 
-    Every show they saw was upserted seconds *before* that stamp; without the
-    margin, all of them would read as vanished.
+    Trusting this afternoon's Chasse run hid 575 shows that were simply on
+    pages the bot check now refuses. Without a complete run, nothing is
+    hidden; the dashboard shows those with the date they were last read.
     """
-    complete_run(full, "chasse", 10, 30)
-    listed(full, "chasse", 30, utc(10.5), "seen")
-    assert health.vanished_counts(full, clock.now()) == {"chasse": (0, 30)}
-    assert only(full, "chasse")["status"] == health.OK
+    complete_run(full, "chasse", 10, 88, complete=None)
+    listed(full, "chasse", 30, utc(5), "seen")
+    listed(full, "chasse", 70, utc(60 * 24 * 21), "unseen")
+    assert health.vanished_counts(full, clock.now()) == {}
+    assert health.seen_cutoffs(full) == {}
