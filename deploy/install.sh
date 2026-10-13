@@ -81,7 +81,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5011 \\
-    --access-logfile - --error-logfile - podiumwatch.web:app
+    --access-logfile - --error-logfile - --no-control-socket podiumwatch.web:app
 Restart=always
 RestartSec=10
 NoNewPrivileges=true
