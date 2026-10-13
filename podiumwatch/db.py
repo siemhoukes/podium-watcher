@@ -109,11 +109,57 @@ class Database:
         self.conn.commit()
 
     def _migrate(self) -> None:
-        """Add columns introduced after a database was first created."""
+        """Bring a database made by an older version up to date."""
         have = {r["name"] for r in self.conn.execute("PRAGMA table_info(snapshots)")}
         if "price_student_cents" not in have:
             self.conn.execute(
                 "ALTER TABLE snapshots ADD COLUMN price_student_cents INTEGER"
+            )
+        self._rekey_paradox()
+
+    def _rekey_paradox(self) -> None:
+        """Move Paradox rows from ticket-button ids to slug + start time.
+
+        A show keyed on the button id split in two when it sold out. Each old
+        row is renamed to its stable key; where the split already happened,
+        the newer twin's snapshots are folded into the older row and the twin
+        is dropped, so one performance keeps one history. Idempotent: once
+        every key matches, this is a single cheap SELECT.
+        """
+        from .venues.paradox import show_key
+
+        rows = self.conn.execute(
+            "SELECT id, external_id, url, starts_at FROM shows"
+            " WHERE venue_id = 'paradox' AND url IS NOT NULL"
+            " AND starts_at IS NOT NULL ORDER BY first_seen"
+        ).fetchall()
+        for row in rows:
+            new = show_key(row["url"], datetime.fromisoformat(row["starts_at"]))
+            if new == row["external_id"]:
+                continue
+            twin = self.conn.execute(
+                "SELECT id, last_seen FROM shows"
+                " WHERE venue_id = 'paradox' AND external_id = ?",
+                (new,),
+            ).fetchone()
+            if twin:
+                self.conn.execute(
+                    "UPDATE snapshots SET show_id = ? WHERE show_id = ?",
+                    (row["id"], twin["id"]),
+                )
+                self.conn.execute(
+                    "UPDATE shows SET last_seen = MAX(last_seen, ?) WHERE id = ?",
+                    (twin["last_seen"], row["id"]),
+                )
+                self.conn.execute("DELETE FROM shows WHERE id = ?", (twin["id"],))
+            for table in ("starred", "alerts_sent"):
+                self.conn.execute(
+                    f"UPDATE OR IGNORE {table} SET external_id = ?"
+                    " WHERE venue_id = 'paradox' AND external_id = ?",
+                    (new, row["external_id"]),
+                )
+            self.conn.execute(
+                "UPDATE shows SET external_id = ? WHERE id = ?", (new, row["id"])
             )
 
     def close(self) -> None:
@@ -235,12 +281,24 @@ class Database:
         return row["seats_total"] if row else None
 
     def record_run(
-        self, venue_id: str, ok: bool, shows_found: int, error: str | None = None
+        self,
+        venue_id: str,
+        ok: bool,
+        shows_found: int,
+        error: str | None = None,
+        started_at: str | None = None,
     ) -> None:
+        """Log one adapter run.
+
+        `started_at` is taken *before* the fetch. It used to be stamped here,
+        after every show had been upserted, so each show the run saw looked
+        older than the run itself -- harmless until something compared the two
+        to work out which shows a run had not seen.
+        """
         self.conn.execute(
             "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
             " VALUES (?,?,?,?,?)",
-            (venue_id, utcnow(), 1 if ok else 0, shows_found, error),
+            (venue_id, started_at or utcnow(), 1 if ok else 0, shows_found, error),
         )
 
     def commit(self) -> None:

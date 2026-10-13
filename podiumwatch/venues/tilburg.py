@@ -53,33 +53,8 @@ class TilburgAdapter(VenueAdapter):
         return ticketmatic.enrich_from_widget(self.fetcher, show.ticket_url, snap)
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
-        results: list[tuple[Show, Snapshot]] = []
-        seen: set[str] = set()
-
-        for page in range(1, MAX_PAGES + 1):
-            url = AGENDA if page == 1 else f"{AGENDA}?page={page}"
-            html = self.fetcher.get_text(url)
-            if not html:
-                break
-
-            found = self._parse_page(html)
-            if not found:
-                break
-
-            added = 0
-            for show, snap in found:
-                # Checked inside the loop so a repeated id within one page is
-                # dropped too, not just one that appeared on an earlier page.
-                if show.external_id in seen:
-                    continue
-                seen.add(show.external_id)
-                results.append((show, snap))
-                added += 1
-            if not added:
-                # Pagination looping back on itself; stop rather than spin.
-                break
-
-        log.info("tilburg: %s shows across %s pages", len(results), page)
+        results = self.paginate(AGENDA, self._parse_page, MAX_PAGES)
+        log.info("tilburg: %s shows across %s pages", len(results), self.pages_read)
         return results
 
     def _parse_page(self, html: str) -> list[tuple[Show, Snapshot]]:

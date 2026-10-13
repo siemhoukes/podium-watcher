@@ -82,33 +82,14 @@ class PepperedAdapter(VenueAdapter):
         return self.base_url + self.programme_path
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
-        results: list[tuple[Show, Snapshot]] = []
-        seen: set[str] = set()
-
-        for page in range(1, self.max_pages + 1):
-            url = (
-                self.programme_url
-                if page == 1
-                else f"{self.programme_url}?page={page}"
-            )
-            html = self.fetcher.get_text(url)
-            if not html:
-                break
-
-            added = 0
-            for show, snap in self._parse_page(html):
-                # Checked inside the loop: a repeated id within one page must
-                # not slip through, or it lands two snapshots on one show in
-                # a single poll.
-                if show.external_id in seen:
-                    continue
-                seen.add(show.external_id)
-                results.append((show, snap))
-                added += 1
-            if not added:
-                break
-
-        log.info("%s: %s performances", self.venue_id, len(results))
+        # Pages are walked by their own "next" link. Peppered renamed its page
+        # parameter from `page` to `p54_page` in late September 2026, and the
+        # hand-built `?page=N` then returned page one forever.
+        results = self.paginate(self.programme_url, self._parse_page, self.max_pages)
+        log.info(
+            "%s: %s performances across %s pages",
+            self.venue_id, len(results), self.pages_read,
+        )
         return results
 
     # ---- parsing -------------------------------------------------------

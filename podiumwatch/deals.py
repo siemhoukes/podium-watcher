@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from . import clock
+
 
 @dataclass(frozen=True)
 class Deal:
@@ -256,7 +258,7 @@ def window_state(
     venue_id: str, starts_at: datetime | None, now: datetime | None = None
 ) -> tuple[str, timedelta | None]:
     """('open' | 'soon' | 'closed' | 'unknown', time until it opens)."""
-    now = now or datetime.now()
+    now = now or clock.now()
     opens = window_opens_at(venue_id, starts_at)
     if opens is None or starts_at is None:
         return "unknown", None

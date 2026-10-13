@@ -24,6 +24,34 @@ UA = (
 DEFAULT_TIMEOUT = 30
 MAX_ATTEMPTS = 3
 
+# Pages that answer 200 (or 403) but are not the page we asked for. Parktheater
+# switches on a virtual waiting room during busy sales, and Chasse and Theater
+# Rotterdam sit behind a BunnyCDN JavaScript check. Parsed as an agenda, each
+# of these is simply "a page with no shows on it" -- a clean run, finding
+# nothing. Recognising them turns that into a failure with a reason.
+#
+# This only *detects* them. The poller does not try to get past either: a
+# waiting room or a bot check is the venue saying "not now", and the next run
+# simply tries again.
+BLOCK_MARKERS = (
+    ("/csq/queue", "virtuele wachtrij"),
+    ("Je staat in de wachtrij", "virtuele wachtrij"),
+    ("Establishing a secure connection", "botcheck"),
+    ("Please enable JavaScript to continue", "botcheck"),
+)
+# Interstitials are small; a real agenda page is hundreds of kilobytes.
+BLOCK_PAGE_MAX_BYTES = 50_000
+
+
+def block_reason(text: str | None) -> str | None:
+    """Why this page is a waiting room or bot check, or None if it is real."""
+    if not text or len(text) > BLOCK_PAGE_MAX_BYTES:
+        return None
+    for marker, reason in BLOCK_MARKERS:
+        if marker in text:
+            return reason
+    return None
+
 
 class Fetcher:
     def __init__(self, min_delay: float = 1.0, max_delay: float = 3.0):
@@ -37,6 +65,8 @@ class Fetcher:
         )
         self.min_delay = min_delay
         self.max_delay = max_delay
+        # Why the last `get` returned None, in words fit for /status.
+        self.last_problem: str | None = None
 
     def _pause(self) -> None:
         time.sleep(random.uniform(self.min_delay, self.max_delay))
@@ -44,16 +74,28 @@ class Fetcher:
     def get(self, url: str, **kwargs) -> requests.Response | None:
         """GET with retries. Returns None if the URL is unreachable."""
         kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
+        self.last_problem = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 resp = self.session.get(url, **kwargs)
-                if resp.status_code == 200:
+                blocked = None
+                if (not kwargs.get("stream")
+                        and len(resp.content) <= BLOCK_PAGE_MAX_BYTES):
+                    blocked = block_reason(resp.text)
+                if resp.status_code == 200 and not blocked:
                     self._pause()
                     return resp
+                if blocked:
+                    self.last_problem = f"{blocked} (HTTP {resp.status_code})"
+                    log.warning("GET %s -> %s, not retrying", url, self.last_problem)
+                    self._pause()
+                    return None
                 # 4xx other than 429 won't improve on retry.
                 if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                    self.last_problem = f"HTTP {resp.status_code}"
                     log.warning("GET %s -> HTTP %s, not retrying", url, resp.status_code)
                     return None
+                self.last_problem = f"HTTP {resp.status_code}"
                 log.warning(
                     "GET %s -> HTTP %s (attempt %s/%s)",
                     url,
@@ -62,6 +104,7 @@ class Fetcher:
                     MAX_ATTEMPTS,
                 )
             except requests.RequestException as exc:
+                self.last_problem = f"netwerkfout: {type(exc).__name__}"
                 log.warning(
                     "GET %s failed: %s (attempt %s/%s)", url, exc, attempt, MAX_ATTEMPTS
                 )

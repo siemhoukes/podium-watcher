@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from . import clock
 from .models import AVAILABLE, LIMITED, SOLD_OUT
 
 # Bands, worst to best.
@@ -46,7 +47,9 @@ class Outlook:
     sold_per_day: float | None = None
 
 
-def _seat_outlook(snapshots: list[dict], starts_at: datetime | None) -> Outlook | None:
+def _seat_outlook(
+    snapshots: list[dict], starts_at: datetime | None, now: datetime
+) -> Outlook | None:
     """Use real seat counts when we have them.
 
     A count is a fact, not a forecast, so even one reading says something a
@@ -81,7 +84,7 @@ def _seat_outlook(snapshots: list[dict], starts_at: datetime | None) -> Outlook 
     # Project forward to curtain if we know how fast it is filling.
     projected = sold
     if rate is not None and rate > 0 and starts_at:
-        days_left = max(0.0, (starts_at - datetime.now()).total_seconds() / 86400)
+        days_left = max(0.0, (starts_at - now).total_seconds() / 86400)
         projected = min(1.0, sold + rate * days_left)
 
     pct = f"{sold * 100:.0f}%"
@@ -121,13 +124,23 @@ def _confidence(observations: int, span_days: float) -> str:
     return HIGH
 
 
-def outlook(snapshots: list[dict], starts_at: datetime | None = None) -> Outlook:
-    """`snapshots` is oldest-first; each needs `state` and `observed_at`."""
+def outlook(
+    snapshots: list[dict],
+    starts_at: datetime | None = None,
+    now: datetime | None = None,
+) -> Outlook:
+    """`snapshots` is oldest-first; each needs `state` and `observed_at`.
+
+    `now` is passed in rather than read from the wall clock, so a forecast is
+    reproducible: the old version quietly broke a test the day its fixed
+    show date slid into the past.
+    """
+    now = now or clock.now()
     if not snapshots:
         return Outlook(UNKNOWN_OUTLOOK, COLLECTING, 0.5, "Nog niet waargenomen.")
 
     # Real numbers beat any inference from a coarse flag.
-    seat_based = _seat_outlook(snapshots, starts_at)
+    seat_based = _seat_outlook(snapshots, starts_at, now)
     if seat_based is not None:
         return seat_based
 

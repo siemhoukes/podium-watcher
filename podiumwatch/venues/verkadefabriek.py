@@ -6,9 +6,16 @@ the most generous of the five venues, and the flat EUR 10 is the cheapest
 fare -- so this is usually the best value on the board when something good
 is on.
 
-Only `/podium` is scraped, which is exactly the EUR 10 category. The cinema
-programme is deliberately left out for now: it is dozens of daily screenings
-at a different price, and it would swamp the calendar.
+Only the podium programme is scraped, which is exactly the EUR 10 category.
+The cinema programme is deliberately left out: it is dozens of daily
+screenings at a different price, and it would swamp the calendar.
+
+`/podium` itself used to be that listing. Since early October 2026 it is a
+landing page showing six shows, with a button to the real listing at
+`/agenda?genre=...`. Paging through the landing page skipped most of the
+programme -- page one ended on the 15th, page two began on the 20th -- so
+about half of all performances silently dropped out. The listing URL is now
+read from that button, so a genre they add is picked up too.
 
 Availability here is the weakest signal of any venue. There is no status
 attribute -- a show on sale simply has an *empty* `.ticket-status` div, and a
@@ -18,6 +25,7 @@ guarded rather than trusted.
 
 from __future__ import annotations
 
+import html as htmllib
 import logging
 import re
 
@@ -31,7 +39,17 @@ log = logging.getLogger(__name__)
 
 BASE = "https://www.verkadefabriek.nl"
 PODIUM = BASE + "/podium"
+# What the landing page linked to in October 2026; used only if that link
+# cannot be found.
+PODIUM_GENRES = (
+    "Cabaret", "Club", "Cursus", "Dans", "Festival", "Flaneerprogramma",
+    "Kinderen", "Masterclass", "Muziek", "Open-repetitie", "Talkshow",
+    "theater", "Training", "Woord", "Workshop",
+)
+AGENDA_FALLBACK = BASE + "/agenda?" + "&".join(f"genre={g}" for g in PODIUM_GENRES)
 MAX_PAGES = 40
+
+_LISTING_LINK = re.compile(r'href="(/agenda\?genre=[^"]+)"')
 
 SOLD_OUT_HINTS = ("uitverkocht", "volgeboekt", "wachtlijst")
 LIMITED_HINTS = ("laatste kaarten", "bijna uitverkocht", "beperkt")
@@ -73,31 +91,20 @@ class VerkadefabriekAdapter(VenueAdapter):
         return True
 
     def fetch(self) -> list[tuple[Show, Snapshot]]:
-        results: list[tuple[Show, Snapshot]] = []
-        seen: set[str] = set()
-
-        for page in range(1, MAX_PAGES + 1):
-            url = PODIUM if page == 1 else f"{PODIUM}?page={page}"
-            html = self.fetcher.get_text(url)
-            if not html:
-                break
-
-            found = self._parse_page(html)
-            if not found:
-                break  # ran off the end of the programme
-
-            added = 0
-            for show, snap in found:
-                if show.external_id in seen:
-                    continue
-                seen.add(show.external_id)
-                results.append((show, snap))
-                added += 1
-            if not added:
-                break  # pagination looping back on itself
-
-        log.info("verkadefabriek: %s shows", len(results))
+        results = self.paginate(self._listing_url(), self._parse_page, MAX_PAGES)
+        log.info(
+            "verkadefabriek: %s shows across %s pages", len(results), self.pages_read
+        )
         return results
+
+    def _listing_url(self) -> str:
+        """The full podium listing, as linked from the `/podium` landing page."""
+        html = self.fetcher.get_text(PODIUM) or ""
+        m = _LISTING_LINK.search(html)
+        if not m:
+            log.warning("verkadefabriek: no listing link on /podium, using fallback")
+            return AGENDA_FALLBACK
+        return BASE + htmllib.unescape(m.group(1)).strip()
 
     def _parse_page(self, html: str) -> list[tuple[Show, Snapshot]]:
         soup = BeautifulSoup(html, "html.parser")

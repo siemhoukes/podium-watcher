@@ -110,3 +110,62 @@ def test_an_adapter_without_a_budget_is_left_alone(db):
             raise AssertionError("should not be called")
 
     assert poller._enrich(db, NoBudget(), pairs()) == 0
+
+
+# --------------------------------------------------------------------------
+# What a run records about itself
+# --------------------------------------------------------------------------
+
+class _Base:
+    enrich_budget = 0
+
+    def __init__(self, fetcher):
+        self.fetcher = fetcher
+        self.problems: list[str] = []
+
+
+class EmptyAdapter(_Base):
+    venue_id = "leeg"
+
+    def fetch(self):
+        return []
+
+
+class PartialAdapter(_Base):
+    venue_id = "half"
+
+    def fetch(self):
+        self.problems.append("Pagina 3 niet opgehaald (HTTP 403); 2 voorstellingen gelezen")
+        return pairs(2)
+
+
+class BlockedAdapter(_Base):
+    venue_id = "dicht"
+
+    def fetch(self):
+        from podiumwatch.venues.base import FetchError
+
+        raise FetchError("Agenda niet opgehaald: virtuele wachtrij (HTTP 200)")
+
+
+def test_runs_record_why_they_failed_or_fell_short(tmp_path, monkeypatch):
+    """An empty run used to be logged with no reason, and a truncated one as a
+    clean success -- which is how three weeks of breakage stayed invisible."""
+    monkeypatch.setattr(poller, "ADAPTERS", [EmptyAdapter, PartialAdapter, BlockedAdapter])
+    monkeypatch.setattr(poller, "Fetcher", lambda: None)
+    monkeypatch.setattr(poller.notify, "send_window_alerts", lambda conn: 0)
+    monkeypatch.setattr(poller.notify, "send_health_alerts", lambda conn, ids: 0)
+
+    path = tmp_path / "p.sqlite3"
+    poller.poll_once(path)
+
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    runs = {r["venue_id"]: r for r in conn.execute("SELECT * FROM poll_runs")}
+    assert runs["leeg"]["ok"] == 0 and "Geen voorstellingen" in runs["leeg"]["error"]
+    assert runs["half"]["ok"] == 1 and "Pagina 3" in runs["half"]["error"]
+    assert runs["dicht"]["ok"] == 0 and "wachtrij" in runs["dicht"]["error"]
+
+    # Stamped before the fetch, so every show the run saw is newer than it.
+    seen = [r["last_seen"] for r in conn.execute("SELECT last_seen FROM shows")]
+    assert seen and all(stamp >= runs["half"]["started_at"] for stamp in seen)

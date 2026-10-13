@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from podiumwatch import health
+from podiumwatch import clock, health
+from podiumwatch.db import SCHEMA
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def conn():
 
 
 def add(conn, venue, found, ok=1, minutes_ago=5, error=None):
-    when = (datetime.now() - timedelta(minutes=minutes_ago)).isoformat()
+    when = (clock.now() - timedelta(minutes=minutes_ago)).isoformat()
     conn.execute(
         "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
         " VALUES (?,?,?,?,?)",
@@ -91,3 +92,94 @@ def test_worst_first(conn):
     add(conn, "bad_one", 0)
     statuses = [v["status"] for v in health.venue_health(conn)]
     assert statuses[0] == health.FAIL
+
+
+def test_a_collapse_that_has_lasted_ten_days_is_still_caught(conn):
+    """The September 2026 failure, replayed.
+
+    Seventeen days at ~760 rows, then ten days at ~100 after Peppered renamed
+    its page parameter. The old rule compared against the last ten runs --
+    by then all collapsed -- and said "ok" for three weeks.
+    """
+    for day in range(11, 28):
+        for run in range(4):
+            add(conn, "chasse", 760, minutes_ago=day * 1440 + run * 360)
+    for i in range(40):
+        add(conn, "chasse", 100, minutes_ago=5 + i * 360)
+    v = only(conn, "chasse")
+    assert v["status"] == health.WARN
+    assert "760" in v["message"]
+
+
+def test_an_incomplete_run_is_a_warning_with_its_reason(conn):
+    for i in range(4):
+        add(conn, "chasse", 750, minutes_ago=400 * (i + 1))
+    add(conn, "chasse", 300,
+        error="Pagina 4 niet opgehaald (HTTP 403); 300 voorstellingen gelezen")
+    v = only(conn, "chasse")
+    assert v["status"] == health.WARN
+    assert "Onvolledig" in v["message"] and "Pagina 4" in v["message"]
+
+
+# --------------------------------------------------------------------------
+# Shows that drop out of the listing
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def full():
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    c.executescript(SCHEMA)
+    return c
+
+
+def utc(minutes_ago: float) -> str:
+    stamp = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return stamp.isoformat(timespec="seconds")
+
+
+def complete_run(c, venue, minutes_ago, found):
+    c.execute(
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
+        " VALUES (?,?,1,?,NULL)",
+        (venue, utc(minutes_ago), found),
+    )
+
+
+def listed(c, venue, n, last_seen, prefix):
+    starts = (clock.now() + timedelta(days=5)).isoformat()
+    for i in range(n):
+        c.execute(
+            "INSERT INTO shows (venue_id, external_id, title, starts_at,"
+            " first_seen, last_seen) VALUES (?,?,?,?,?,?)",
+            (venue, f"{prefix}{i}", f"{prefix}{i}", starts, last_seen, last_seen),
+        )
+
+
+def test_shows_dropping_out_of_the_listing_are_caught(full):
+    """Row counts can look plausible while most of the programme is gone."""
+    complete_run(full, "chasse", 10, 30)
+    listed(full, "chasse", 30, utc(5), "seen")
+    listed(full, "chasse", 70, utc(60 * 24 * 21), "gone")
+    v = only(full, "chasse")
+    assert v["status"] == health.WARN
+    assert "70 komende voorstellingen" in v["message"]
+
+
+def test_a_few_cancellations_are_not_an_alarm(full):
+    complete_run(full, "chasse", 10, 30)
+    listed(full, "chasse", 30, utc(5), "seen")
+    listed(full, "chasse", 3, utc(60 * 24 * 3), "gone")
+    assert only(full, "chasse")["status"] == health.OK
+
+
+def test_a_run_stamped_after_its_upserts_still_counts_as_listing_them(full):
+    """Runs logged before October 2026 were stamped when they finished.
+
+    Every show they saw was upserted seconds *before* that stamp; without the
+    margin, all of them would read as vanished.
+    """
+    complete_run(full, "chasse", 10, 30)
+    listed(full, "chasse", 30, utc(10.5), "seen")
+    assert health.vanished_counts(full, clock.now()) == {"chasse": (0, 30)}
+    assert only(full, "chasse")["status"] == health.OK

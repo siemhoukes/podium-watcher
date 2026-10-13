@@ -6,11 +6,12 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from . import notify
-from .db import Database
+from . import clock, notify
+from .db import Database, utcnow
 from .http import Fetcher
 from .models import Snapshot, Show
 from .venues import ADAPTERS
+from .venues.base import FetchError
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
     if not budget:
         return 0
 
-    now = datetime.now()
+    now = clock.now()
     upcoming = [
         (show, snap)
         for show, snap in pairs
@@ -113,11 +114,25 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             if only and adapter_cls.venue_id != only:
                 continue
             adapter = adapter_cls(fetcher)
+            started = utcnow()
             try:
                 pairs = adapter.fetch()
+            except FetchError as exc:
+                # Expected kinds of failure -- a waiting room, a page that
+                # would not load. A reason is enough; a traceback is noise.
+                log.warning("%s: %s", adapter.venue_id, exc)
+                db.record_run(
+                    adapter.venue_id, ok=False, shows_found=0, error=str(exc),
+                    started_at=started,
+                )
+                summary["venues"][adapter.venue_id] = {"error": str(exc)}
+                continue
             except Exception as exc:  # one broken venue must not stop the rest
                 log.exception("%s: adapter failed", adapter.venue_id)
-                db.record_run(adapter.venue_id, ok=False, shows_found=0, error=str(exc))
+                db.record_run(
+                    adapter.venue_id, ok=False, shows_found=0, error=str(exc),
+                    started_at=started,
+                )
                 summary["venues"][adapter.venue_id] = {"error": str(exc)}
                 continue
 
@@ -129,7 +144,22 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
                 if db.add_snapshot(show_id, snap):
                     changes += 1
 
-            db.record_run(adapter.venue_id, ok=bool(pairs), shows_found=len(pairs))
+            # An empty run used to be recorded as failed with no reason at all,
+            # and a run cut short halfway as a clean success. Both now say why.
+            problems = "; ".join(adapter.problems) or None
+            if pairs:
+                db.record_run(
+                    adapter.venue_id, ok=True, shows_found=len(pairs), error=problems,
+                    started_at=started,
+                )
+            else:
+                db.record_run(
+                    adapter.venue_id, ok=False, shows_found=0,
+                    error=problems or "Geen voorstellingen gevonden",
+                    started_at=started,
+                )
+            if problems:
+                log.warning("%s: incomplete run: %s", adapter.venue_id, problems)
             db.commit()
 
             summary["venues"][adapter.venue_id] = {
@@ -150,6 +180,15 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
         except Exception:
             log.exception("alerting failed")
             summary["alerts"] = 0
+        # Only on a full poll: a single-venue debug run says nothing about
+        # whether the others are healthy.
+        if not only:
+            try:
+                summary["health_mails"] = notify.send_health_alerts(
+                    db.conn, [a.venue_id for a in ADAPTERS]
+                )
+            except Exception:
+                log.exception("health alerting failed")
     finally:
         db.commit()
         summary["totals"] = db.stats()

@@ -116,6 +116,7 @@
   .status.available { color: var(--green); }
   .status.limited   { color: var(--oxblood); }
   .status.unknown   { color: var(--ink-3); }
+  .status .asof     { color: var(--ink-3); }
   .seats {
     font-family: var(--sans); font-size: 12px; color: var(--ink-2);
     margin-top: 6px; display: flex; align-items: center; gap: 9px;
@@ -283,6 +284,9 @@
           {% elif r.state == 'limited' %}Laatste kaarten
           {% elif r.state == 'sold_out' %}Uitverkocht
           {% else %}Verkoopstatus onbekend{% endif %}
+          {%- if r.status_as_of %}
+            <span class="asof">· stand van {{ r.status_as_of | nl_date }}</span>
+          {%- endif %}
         </div>
 
         {# Shown only when the venue gave a real count. Ticketmatic does for

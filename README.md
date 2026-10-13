@@ -238,8 +238,8 @@ point offering a ticket that does not exist.
 ## Your own marks
 
 Stars and hides live in the database, not in browser storage, because the
-poller will need them: the planned ntfy alert fires when a *starred* show's
-discount window opens, and a browser cannot tell it that.
+poller needs them: the window alert fires when a *starred* show's discount
+window opens, and a browser cannot tell it that.
 
 - **Starring is per performance** — you attend one night, not a run.
 - **Hiding is per production** — a four-night run would otherwise need four
@@ -256,31 +256,78 @@ use a separate writable connection.
 
 ## Alerts
 
-The dashboard answers *what is worth planning around*. The push answers *you
+The dashboard answers *what is worth planning around*. An alert answers *you
 can buy it now*, which is true for a few hours and cannot be noticed on a page
 you are not looking at — so alerting runs in the poller, not the web app.
 
-Only **starred** performances trigger a push. A notification every time a
-Tilburg show entered its 48 hours would be several a day, which is how a quiet
-tool becomes one you mute.
+**Everything goes by email.** ntfy pushes went unread; email is what makes the
+phone buzz. ntfy is still there as a fallback for a box with no mail set up.
 
-`alerts_sent` records each (performance, kind) pair, so a window that stays
-open across four polls sends once. Sold-out shows are skipped: the window
-opened, but there is nothing to buy.
+- **Window open** — only for **starred** performances. A message every time a
+  Tilburg show entered its 48 hours would be several a day, which is how a
+  quiet tool becomes one you mute. Several windows opening in one poll arrive
+  as one mail. `alerts_sent` records each (performance, kind) pair, so a
+  window that stays open across four polls mails once; sold-out shows and
+  shows the venue no longer lists are skipped.
+- **Weekly digest** — Monday mornings, far enough ahead to plan a weekend
+  around. It applies the same category filters as the dashboard, which it did
+  not at first: sorting by price alone put four free showings of a children's
+  play and two screenings of Minoes at the top. Those filters live in
+  `categories.py` so the two surfaces cannot drift again.
+- **A scraper is broken** — once a venue has been failing or incomplete for
+  12 hours, and once more when it recovers. One failed poll is usually the
+  network (all nine venues failed together on 17 September), so a single
+  blip never mails.
 
-A **weekly digest** goes out over SMTP on Monday mornings, far enough ahead
-to plan a weekend around. It applies the same category filters as the
-dashboard, which it did not at first: sorting by price alone put four free
-showings of a children's play and two screenings of Minoes at the top. Those
-filters now live in `categories.py` so the two surfaces cannot drift again.
-
-Off until configured. Put an unguessable topic in
-`/etc/podium-watcher/podium.env` (an ntfy topic is public to anyone who knows
-the name):
+Configured in `/etc/podium-watcher/podium.env`; with no mail settings the
+poller simply collects:
 
 ```bash
-PODIUM_NTFY_TOPIC=https://ntfy.sh/podium-<something-random>
+PODIUM_SMTP_HOST=smtp.gmail.com
+PODIUM_SMTP_PORT=587
+PODIUM_SMTP_USER=...
+PODIUM_SMTP_PASS=...        # an app password, not the account password
+PODIUM_MAIL_TO=...
 ```
+
+## When a scraper breaks
+
+Scrapers fail silently, and in late September 2026 three of them did at once:
+
+- **Peppered renamed its page parameter** from `page` to `p54_page`. Every
+  hand-built `?page=2` then returned page one, the loop saw only repeats and
+  stopped, and Chassé, Parktheater, de Doelen and Theater Rotterdam lost
+  85–95% of their programme.
+- **Verkadefabriek turned `/podium` into a six-show teaser**, with a button to
+  the real listing at `/agenda?genre=…`. Paging through the teaser skipped
+  about half of all performances.
+- **Paradox keyed shows on the ticket-button id**, which disappears when a
+  show sells out — so a selling-out show split in two.
+
+Every run still logged as a clean success, and `/status` — comparing each
+venue with its own last ten runs — called the collapse normal after three
+days. Nothing was wrong for three weeks as far as the tool could tell. What
+changed:
+
+- **Pages are walked by their own `rel="next"` link** (`VenueAdapter.paginate`),
+  never by a URL we build, and the walk is strict: page one failing or empty
+  raises; a later page failing, a page that only repeats earlier shows, or a
+  listing longer than the page cap is recorded as an *incomplete* run.
+- **Waiting rooms and bot checks are recognised** (Parktheater's virtual
+  queue, BunnyCDN's JavaScript check) and logged as failures with that reason.
+  They are detected, never worked around: that is the venue saying "not now",
+  and the next run tries again.
+- **Health compares against four weeks** (75th percentile), so a collapse has
+  to last three weeks before it looks normal, and separately counts upcoming
+  shows that the latest complete run no longer lists.
+- **The dashboard stops presenting stale data as current.** A show the venue's
+  latest complete listing no longer has is hidden (cancelled, moved, off
+  sale); a show whose venue has not been read for 30 hours carries "stand van
+  …" next to its status.
+- **And it mails** — see *Alerts* above.
+
+All times are Europe/Amsterdam (`clock.py`). The Pi runs on Europe/London, so
+reading its wall clock opened every 24-hour window an hour late.
 
 ## Tests
 
@@ -289,8 +336,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-78 tests over gzipped copies of the real pages (3.4 MB of HTML compressed to
-330 KB). Scrapers fail *silently* -- a venue redesigns, a selector stops
+168 tests, many over gzipped copies of the real pages. Scrapers fail *silently* -- a venue redesigns, a selector stops
 matching, and the poller records "nothing on" for a fortnight -- so the
 adapter tests assert on values read off those fixtures and break loudly
 instead.
@@ -379,13 +425,10 @@ a CRLF `install.sh` fails with "bad interpreter".
 
 ## Still to build
 
-- MgE adapter (find its XHR endpoint), then Paradox and 013
-- Ticketmatic seat counts — the widget renders `"{n} stoelen beschikbaar"` and
-  exposes `eventseatingplan/{code}/availability/`, but `{code}` is a hashed
-  reference, not the numeric id in `shows.ticket_ref`
-- Hall capacities, so `seats_free` becomes a fraction rather than a bare count
-- A real forecast once the curves have history — `forecast.py` currently
-  returns a band plus an observation count, not a percentage, on purpose
-- ntfy push when a window opens; weekly email digest
+- Hall capacities for the Peppered venues, so a 3-level status can at least
+  be read against the size of the room
+- A real forecast once the curves have history — `forecast.py` still returns
+  a band plus an observation count, not a percentage, on purpose
 - One-tap *got it / missed it* logging, to learn whether venues cap the youth
   allocation separately from the hall
+

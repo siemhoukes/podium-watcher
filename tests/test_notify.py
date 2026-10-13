@@ -163,3 +163,110 @@ def test_an_empty_digest_still_formats(conn):
     subject, body = notify.format_digest([])
     assert "niets gevonden" in subject
     assert body
+
+
+# --------------------------------------------------------------------------
+# Email first
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def mailbox(monkeypatch):
+    """Mail configured, and every message captured instead of sent."""
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(notify, "SMTP_HOST", "smtp.test")
+    monkeypatch.setattr(notify, "MAIL_TO", "me@example.test")
+    monkeypatch.setattr(notify, "NTFY_TOPIC", "")
+
+    def fake_send(subject, body):
+        sent.append((subject, body))
+        return True
+
+    monkeypatch.setattr(notify, "send_mail", fake_send)
+    return sent
+
+
+def test_window_alerts_arrive_as_one_mail(conn, mailbox):
+    """Email is what reaches the phone; two windows are one message, not two."""
+    add_show(conn, ext="1")
+    add_show(conn, ext="2")
+    assert notify.send_window_alerts(conn, now=NOW) == 2
+    assert len(mailbox) == 1
+    assert "2 kortingsvensters" in mailbox[0][0]
+    # Recorded as sent, so the next poll stays quiet.
+    assert notify.send_window_alerts(conn, now=NOW) == 0
+    assert len(mailbox) == 1
+
+
+def test_a_failed_mail_is_retried_next_poll(conn, monkeypatch, mailbox):
+    add_show(conn)
+    monkeypatch.setattr(notify, "send_mail", lambda subject, body: False)
+    assert notify.send_window_alerts(conn, now=NOW) == 0
+    assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 0
+
+
+# --------------------------------------------------------------------------
+# Scraper health by mail
+# --------------------------------------------------------------------------
+
+def poll_run(conn, venue, found, at, ok=1, error=None):
+    conn.execute(
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error)"
+        " VALUES (?,?,?,?,?)",
+        (venue, at.isoformat(), ok, found, error),
+    )
+
+
+def health_rows(conn):
+    return conn.execute(
+        "SELECT kind FROM alerts_sent WHERE external_id = ?", (notify.HEALTH_KEY,)
+    ).fetchall()
+
+
+def test_a_broken_scraper_is_mailed_once_after_half_a_day(conn, mailbox):
+    h = timedelta(hours=1)
+    err = "Agenda niet opgehaald: virtuele wachtrij (HTTP 200)"
+    for hours in (0, 6):
+        poll_run(conn, "chasse", 0, NOW + hours * h, ok=0, error=err)
+        assert notify.send_health_alerts(conn, ["chasse"], now=NOW + hours * h) == 0
+    assert mailbox == []
+
+    poll_run(conn, "chasse", 0, NOW + 12 * h, ok=0, error=err)
+    assert notify.send_health_alerts(conn, ["chasse"], now=NOW + 12 * h) == 1
+    subject, body = mailbox[0]
+    assert "Chass" in subject and "wachtrij" in body
+
+    poll_run(conn, "chasse", 0, NOW + 18 * h, ok=0, error=err)
+    assert notify.send_health_alerts(conn, ["chasse"], now=NOW + 18 * h) == 0
+    assert len(mailbox) == 1
+
+    poll_run(conn, "chasse", 700, NOW + 24 * h)
+    assert notify.send_health_alerts(conn, ["chasse"], now=NOW + 24 * h) == 1
+    assert "werkt weer" in mailbox[-1][0]
+    assert health_rows(conn) == []
+
+
+def test_a_single_failed_poll_never_mails(conn, mailbox):
+    """All nine venues failed together on 17 September: that was the network."""
+    poll_run(conn, "chasse", 0, NOW, ok=0, error="netwerkfout: ConnectionError")
+    notify.send_health_alerts(conn, ["chasse"], now=NOW)
+    poll_run(conn, "chasse", 700, NOW + timedelta(hours=6))
+    notify.send_health_alerts(conn, ["chasse"], now=NOW + timedelta(hours=6))
+    assert mailbox == []
+    assert health_rows(conn) == []
+
+
+# --------------------------------------------------------------------------
+# Shows the venue no longer lists
+# --------------------------------------------------------------------------
+
+def test_digest_leaves_out_shows_the_venue_no_longer_lists(conn):
+    add_tagged(conn, "1", "Nog op de agenda", "[]", 1500)
+    add_tagged(conn, "2", "Geschrapt", "[]", 1500)
+    # A complete run after both were first seen, which listed only the first.
+    poll_run(conn, "verkadefabriek", 1, NOW + timedelta(minutes=30))
+    conn.execute(
+        "UPDATE shows SET last_seen = ? WHERE external_id = '1'",
+        ((NOW + timedelta(minutes=31)).isoformat(),),
+    )
+    titles = [r["title"] for r in notify.digest_rows(conn, now=NOW)]
+    assert titles == ["Nog op de agenda"]

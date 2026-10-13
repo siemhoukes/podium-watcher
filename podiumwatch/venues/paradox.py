@@ -38,6 +38,17 @@ _AANVANG_RE = re.compile(r"aanvang\s*(\d{1,2})[:.](\d{2})", re.IGNORECASE)
 _STAGER_RE = re.compile(r"/events/(\d+)")
 
 
+def show_key(url: str, starts_at) -> str:
+    """Production slug + start time.
+
+    Not the Stager event id behind the ticket button: that button disappears
+    when a show sells out, so the same performance came back as a new row at
+    exactly the moment its history mattered most -- the Peppered mistake
+    again. Soft Machine on 16 October was the first to split in two.
+    """
+    return f"{url.rstrip('/').rsplit('/', 1)[-1]}-{starts_at:%Y%m%d%H%M}"
+
+
 class ParadoxAdapter(VenueAdapter):
     venue_id = "paradox"
     name = "Paradox"
@@ -111,7 +122,7 @@ class ParadoxAdapter(VenueAdapter):
         return (
             Show(
                 venue_id=self.venue_id,
-                external_id=ref or f"{url.rstrip('/').rsplit('/', 1)[-1]}-{starts_at:%Y%m%d%H%M}",
+                external_id=show_key(url, starts_at),
                 title=title,
                 subtitle=subtitle,
                 starts_at=starts_at,

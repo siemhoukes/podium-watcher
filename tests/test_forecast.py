@@ -9,10 +9,23 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from podiumwatch import forecast
 from podiumwatch.models import AVAILABLE, LIMITED, SOLD_OUT
 
 NOW = datetime(2026, 9, 1, 12, 0)
+
+
+@pytest.fixture(autouse=True)
+def frozen_clock(monkeypatch):
+    """Every test here describes a moment, not today.
+
+    The projection used to read the wall clock, so these fixed show dates
+    slid into the past and a passing test started failing on 21 September
+    without a line of code changing.
+    """
+    monkeypatch.setattr(forecast.clock, "now", lambda: NOW)
 
 
 def snap(state=AVAILABLE, free=None, total=None, days_ago=0.0):

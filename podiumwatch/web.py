@@ -10,13 +10,13 @@ import calendar as calmod
 import json
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
 
 from flask import Flask, redirect, render_template, request
 
-from . import categories, deals, forecast, health
+from . import categories, clock, deals, forecast, health
 from .models import AVAILABLE, LIMITED, SOLD_OUT
 
 DB_PATH = Path(
@@ -107,10 +107,21 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         snaps[row["show_id"]].append(dict(row))
 
     starred, hidden = _flags(conn)
+    cutoffs = health.seen_cutoffs(conn)
+    stale_before = (datetime.now(timezone.utc) - STALE_STATUS).isoformat(
+        timespec="seconds"
+    )
 
-    now = datetime.now()
+    now = clock.now()
     out = []
     for s in shows:
+        # The venue's latest complete listing no longer has it: cancelled,
+        # moved, or taken off sale. Showing its last known status would be
+        # presenting a guess as an observation.
+        cutoff = cutoffs.get(s["venue_id"])
+        if cutoff and s["last_seen"] < cutoff:
+            continue
+
         history = snaps.get(s["id"], [])
         latest = history[-1] if history else {}
         starts_at = datetime.fromisoformat(s["starts_at"])
@@ -130,7 +141,7 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
             if deal_ok else None
         )
         wstate, until = deals.window_state(s["venue_id"], starts_at, now)
-        look = forecast.outlook(history, starts_at)
+        look = forecast.outlook(history, starts_at, now)
 
         name, city, travel = VENUE_META.get(
             s["venue_id"], (s["venue_id"], "", 30)
@@ -165,6 +176,12 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "seats_free": latest.get("seats_free"),
                 "seats_total": latest.get("seats_total"),
                 "state": latest.get("state", "unknown"),
+                # Set when the venue has not been read successfully for a
+                # while, so the status shown is older than it looks.
+                "status_as_of": (
+                    clock.local(s["last_seen"])
+                    if s["last_seen"] < stale_before else None
+                ),
                 "outlook": look,
                 "window_state": wstate,
                 "window_in": until,
@@ -177,6 +194,10 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         )
     return out
 
+
+# A status older than this gets its date printed next to it. Four polls a day
+# means a healthy venue is never more than ~6 hours behind.
+STALE_STATUS = timedelta(hours=30)
 
 # Shared with the digest so the two surfaces cannot drift apart.
 KIDS_TAGS = categories.KIDS
@@ -228,7 +249,7 @@ def index():
     only_starred = request.args.get("fav", "0") == "1"
     show_hidden = request.args.get("verborgen", "0") == "1"
 
-    now = datetime.now()
+    now = clock.now()
     with connect() as conn:
         rows = _rows_for(conn, now, now + timedelta(days=days))
         # Surfaced as a banner: a venue that silently stopped returning rows
@@ -310,7 +331,7 @@ def toggle_star():
                 conn.execute(
                     "INSERT INTO starred (venue_id, external_id, created_at)"
                     " VALUES (?,?,?)",
-                    (venue_id, external_id, datetime.now().isoformat(timespec="seconds")),
+                    (venue_id, external_id, clock.now().isoformat(timespec="seconds")),
                 )
             conn.commit()
         finally:
@@ -333,7 +354,7 @@ def toggle_hide():
                 conn.execute(
                     "INSERT INTO hidden_productions (venue_id, title, created_at)"
                     " VALUES (?,?,?)",
-                    (venue_id, title, datetime.now().isoformat(timespec="seconds")),
+                    (venue_id, title, clock.now().isoformat(timespec="seconds")),
                 )
             conn.commit()
         finally:
@@ -364,7 +385,7 @@ def status():
 
 @app.route("/calendar")
 def calendar_view():
-    now = datetime.now()
+    now = clock.now()
     year = request.args.get("year", now.year, type=int)
     month = request.args.get("month", now.month, type=int)
     if not 1 <= month <= 12:
@@ -436,12 +457,8 @@ def _stats() -> dict:
         venues = q(
             "SELECT COUNT(DISTINCT venue_id) c FROM shows"
         ).fetchone()["c"]
-    last_dt = None
-    if last:
-        try:
-            last_dt = datetime.fromisoformat(last)
-        except ValueError:
-            pass
+    # Stored in UTC; shown in the time you read the page in.
+    last_dt = clock.local(last)
     return {
         "shows": total,
         "snapshots": snaps,

@@ -5,9 +5,15 @@ is worth planning around"; this answers "you can buy it now", which is only
 true for a few hours and cannot be discovered by looking at a page you are not
 looking at.
 
-Push goes to ntfy because it needs no account or bot token and the Pi can
-reach it with one POST. The weekly digest goes over SMTP, matching every other
-watcher in this collection.
+Everything goes by email when SMTP is configured: that is the channel that
+actually reaches a phone -- ntfy pushes were going unread. ntfy remains as a
+fallback for a box with no mail set up. Several windows opening in one poll
+arrive as one mail, not a burst.
+
+The same channel carries one more kind of message: a scraper that has been
+broken for half a day. Scrapers fail silently, and in September 2026 four
+venues lost most of their programme for three weeks while /status, which
+nobody opens, was the only place that could have said so.
 
 Nothing is sent twice: `alerts_sent` records each (performance, kind) pair, so
 a window that stays open across four polls produces one notification. That
@@ -26,7 +32,7 @@ from email.message import EmailMessage
 
 import requests
 
-from . import categories, deals
+from . import categories, clock, deals, health
 
 log = logging.getLogger(__name__)
 
@@ -43,8 +49,13 @@ SMTP_PASS = os.environ.get("PODIUM_SMTP_PASS", "").strip()
 MAIL_TO = os.environ.get("PODIUM_MAIL_TO", "").strip()
 
 
+def mail_enabled() -> bool:
+    return bool(SMTP_HOST and MAIL_TO)
+
+
 def enabled() -> bool:
-    return bool(NTFY_TOPIC)
+    """Any channel at all."""
+    return mail_enabled() or bool(NTFY_TOPIC)
 
 
 def push(title: str, message: str, url: str | None = None,
@@ -96,17 +107,23 @@ def send_mail(subject: str, body: str) -> bool:
 # --------------------------------------------------------------------------
 
 
+def _vanished(row, cutoffs: dict[str, str]) -> bool:
+    """The venue's latest complete listing no longer has this show."""
+    cutoff = cutoffs.get(row["venue_id"])
+    return bool(cutoff and row["last_seen"] and row["last_seen"] < cutoff)
+
+
 def due_window_alerts(conn, now: datetime | None = None) -> list[dict]:
     """Starred performances whose discount window is open and unannounced.
 
     Only starred ones: you asked for a quiet tool, and a push for every
     Tilburg show whose 48 hours just started would be several a day.
     """
-    now = now or datetime.now()
+    now = now or clock.now()
     rows = conn.execute(
         """
         SELECT s.id, s.venue_id, s.external_id, s.title, s.subtitle,
-               s.starts_at, s.url, s.hall
+               s.starts_at, s.url, s.hall, s.last_seen
         FROM shows s
         JOIN starred k
           ON k.venue_id = s.venue_id AND k.external_id = s.external_id
@@ -123,10 +140,13 @@ def due_window_alerts(conn, now: datetime | None = None) -> list[dict]:
         )
     }
 
+    cutoffs = health.seen_cutoffs(conn)
     due = []
     for row in rows:
         key = (row["venue_id"], row["external_id"])
         if key in already:
+            continue
+        if _vanished(row, cutoffs):
             continue
         starts_at = datetime.fromisoformat(row["starts_at"])
         state, _ = deals.window_state(row["venue_id"], starts_at, now)
@@ -183,36 +203,165 @@ def format_window_alert(item: dict) -> tuple[str, str]:
     return title, "\n".join(x for x in lines if x)
 
 
+def format_window_mail(due: list[dict]) -> tuple[str, str]:
+    """-> (subject, body): every window that opened this poll, in one mail."""
+    blocks = []
+    for item in due:
+        title, body = format_window_alert(item)
+        blocks.append("\n".join(x for x in (title, body, item.get("url") or "") if x))
+    if len(due) == 1:
+        subject = f"Podium: {format_window_alert(due[0])[0]}"
+    else:
+        subject = f"Podium: {len(due)} kortingsvensters open"
+    return subject, "\n\n".join(blocks)
+
+
 def send_window_alerts(conn, commit=True, now: datetime | None = None) -> int:
-    """Push every due alert and record it. Returns how many went out."""
+    """Announce every due alert and record it. Returns how many went out."""
     due = due_window_alerts(conn, now=now)
     if not due:
         return 0
     if not enabled():
-        log.info("notify: %s alerts due but no ntfy topic configured", len(due))
+        log.info("notify: %s alerts due but no mail or ntfy configured", len(due))
         return 0
 
-    sent = 0
-    for item in due:
-        title, body = format_window_alert(item)
-        ok = push(
-            title, body, url=item.get("url"),
-            priority="high", tags="ticket",
-        )
-        if not ok:
-            continue
+    if mail_enabled():
+        delivered = due if send_mail(*format_window_mail(due)) else []
+    else:
+        delivered = []
+        for item in due:
+            title, body = format_window_alert(item)
+            if push(title, body, url=item.get("url"), priority="high", tags="ticket"):
+                delivered.append(item)
+
+    for item in delivered:
         conn.execute(
             "INSERT OR REPLACE INTO alerts_sent"
             " (venue_id, external_id, kind, sent_at) VALUES (?,?,?,?)",
             (
                 item["venue_id"], item["external_id"], WINDOW_OPEN,
-                datetime.now().isoformat(timespec="seconds"),
+                clock.now().isoformat(timespec="seconds"),
             ),
         )
-        sent += 1
-    if commit and sent:
+    if commit and delivered:
         conn.commit()
-    return sent
+    return len(delivered)
+
+
+# --------------------------------------------------------------------------
+# Scraper health
+# --------------------------------------------------------------------------
+
+# State lives in alerts_sent under this pseudo show id: a "pending" row when a
+# venue first looks broken, a "sent" row once the mail went out. Both go when
+# it recovers.
+HEALTH_KEY = "__health__"
+HEALTH_PENDING = "health_pending"
+HEALTH_SENT = "health"
+
+# One failed poll is usually the network -- all nine venues failed together
+# on 17 September. Half a day of it is a scraper.
+HEALTH_GRACE = timedelta(hours=12)
+
+
+def _venue_names() -> dict[str, str]:
+    from .venues import ADAPTERS
+
+    return {a.venue_id: a.name for a in ADAPTERS}
+
+
+def format_health_mail(broken: list[dict], recovered: list[dict]) -> tuple[str, str]:
+    names = _venue_names()
+
+    def name(v: dict) -> str:
+        return names.get(v["venue_id"], v["venue_id"])
+
+    if broken:
+        subject = (
+            f"Podium: {name(broken[0])} wordt niet goed opgehaald"
+            if len(broken) == 1
+            else f"Podium: {len(broken)} podia worden niet goed opgehaald"
+        )
+    else:
+        subject = (
+            f"Podium: {name(recovered[0])} werkt weer"
+            if len(recovered) == 1
+            else f"Podium: {len(recovered)} podia werken weer"
+        )
+
+    lines = []
+    if broken:
+        lines.append("Al minstens 12 uur niet in orde:")
+        lines.append("")
+        for v in broken:
+            lines.append(f"  {name(v)}: {v['message']}")
+        lines.append("")
+        lines.append(
+            "Tot dit is opgelost kloppen de beschikbaarheid en de kortingen "
+            "voor deze podia niet."
+        )
+        lines.append("")
+    if recovered:
+        lines.append("Weer in orde: " + ", ".join(name(v) for v in recovered))
+        lines.append("")
+    lines.append("Details: https://podium.siem.codes/status")
+    return subject, "\n".join(lines)
+
+
+def send_health_alerts(
+    conn, venue_ids: list[str], now: datetime | None = None, commit: bool = True
+) -> int:
+    """Mail once when a venue has been broken for HEALTH_GRACE, and once when
+    it recovers. Returns the number of mails sent (0 or 1)."""
+    now = now or clock.now()
+    report = health.venue_health(conn, venue_ids, now=now)
+    state = {
+        (r["venue_id"], r["kind"]): r["sent_at"]
+        for r in conn.execute(
+            "SELECT venue_id, kind, sent_at FROM alerts_sent WHERE external_id = ?",
+            (HEALTH_KEY,),
+        )
+    }
+
+    broken, recovered = [], []
+    for v in report:
+        vid = v["venue_id"]
+        pending = state.get((vid, HEALTH_PENDING))
+        sent = (vid, HEALTH_SENT) in state
+        if v["status"] == health.OK:
+            if sent:
+                recovered.append(v)
+            if pending or sent:
+                conn.execute(
+                    "DELETE FROM alerts_sent WHERE venue_id = ? AND external_id = ?",
+                    (vid, HEALTH_KEY),
+                )
+            continue
+        if not pending:
+            conn.execute(
+                "INSERT INTO alerts_sent (venue_id, external_id, kind, sent_at)"
+                " VALUES (?,?,?,?)",
+                (vid, HEALTH_KEY, HEALTH_PENDING, now.isoformat(timespec="seconds")),
+            )
+        elif not sent and now - datetime.fromisoformat(pending) >= HEALTH_GRACE:
+            broken.append(v)
+
+    mailed = 0
+    if (broken or recovered) and mail_enabled():
+        if send_mail(*format_health_mail(broken, recovered)):
+            mailed = 1
+            for v in broken:
+                conn.execute(
+                    "INSERT OR REPLACE INTO alerts_sent"
+                    " (venue_id, external_id, kind, sent_at) VALUES (?,?,?,?)",
+                    (v["venue_id"], HEALTH_KEY, HEALTH_SENT,
+                     now.isoformat(timespec="seconds")),
+                )
+    elif broken or recovered:
+        log.info("notify: scraper health changed but no mail configured")
+    if commit:
+        conn.commit()
+    return mailed
 
 
 # --------------------------------------------------------------------------
@@ -229,13 +378,13 @@ def digest_rows(conn, days: int = DIGEST_DAYS, now: datetime | None = None) -> l
     nobody reads. Sold-out, externally-sold and hidden productions are out, and
     what is left is ordered by what you would actually pay.
     """
-    now = now or datetime.now()
+    now = now or clock.now()
     horizon = now + timedelta(days=days)
 
     rows = conn.execute(
         """
         SELECT s.id, s.venue_id, s.external_id, s.title, s.subtitle,
-               s.starts_at, s.url, s.hall, s.ticket_url, s.tags
+               s.starts_at, s.url, s.hall, s.ticket_url, s.tags, s.last_seen
         FROM shows s
         WHERE s.starts_at IS NOT NULL AND s.starts_at >= ? AND s.starts_at < ?
         ORDER BY s.starts_at
@@ -252,9 +401,12 @@ def digest_rows(conn, days: int = DIGEST_DAYS, now: datetime | None = None) -> l
         for r in conn.execute("SELECT venue_id, external_id FROM starred")
     }
 
+    cutoffs = health.seen_cutoffs(conn)
     out = []
     for row in rows:
         if (row["venue_id"], row["title"]) in hidden:
+            continue
+        if _vanished(row, cutoffs):
             continue
         if not deals.deal_applies(row["venue_id"], row["ticket_url"]):
             continue
