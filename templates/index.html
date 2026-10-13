@@ -171,7 +171,7 @@
     <div class="frow">
       <span class="flabel">Podium</span>
       <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle</a>
-      {% for vid, meta in venue_meta.items() %}
+      {% for vid, meta in venue_chips.items() %}
         <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
           {{ meta[0] }}{% if meta[1] != meta[0] %} · {{ meta[1] }}{% endif %}
         </a>
@@ -305,7 +305,9 @@
 
         {# A trend needs history. Until there is some, say nothing. The seat
            line above already states the fact, so avoid repeating it. #}
-        {% if r.outlook.sold_per_day is not none %}
+        {# A trend drawn from a status weeks old is a guess, not a reading. #}
+        {% if r.status_as_of %}
+        {% elif r.outlook.sold_per_day is not none %}
           <div class="trend">Vult ~{{ '%.1f' % (r.outlook.sold_per_day * 100) }}% per dag.</div>
         {% elif not r.outlook.seats_total and r.outlook.confidence != 'collecting'
                 and r.outlook.band != 'unknown' %}
@@ -333,7 +335,11 @@
         </div>
 
         <div class="normal">
-          {% if r.base_price %}
+          {% if r.base_price and r.fare is not none and r.fare >= r.base_price
+                and not (r.base_price_max and r.base_price_max > r.base_price) %}
+            {# The deal caps at the door price -- nothing to strike through. #}
+            zelfde als de normale prijs
+          {% elif r.base_price %}
             normaal <s>{{ r.base_price | euro }}{% if r.base_price_max and r.base_price_max > r.base_price %}–{{ r.base_price_max | euro }}{% endif %}</s>
           {% else %}
             normale prijs onbekend

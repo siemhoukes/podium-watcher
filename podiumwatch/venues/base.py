@@ -188,7 +188,7 @@ class VenueAdapter:
                 if page == 1:
                     raise FetchError(f"Agenda niet opgehaald: {why}")
                 self.problems.append(
-                    f"Pagina {page} niet opgehaald ({why}); "
+                    f"Pagina {page} niet opgehaald: {why}; "
                     f"{len(results)} voorstellingen gelezen"
                 )
                 break

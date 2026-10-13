@@ -112,7 +112,7 @@
 
   <div class="calfilters">
     <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle podia</a>
-    {% for vid, meta in venue_meta.items() %}
+    {% for vid, meta in venue_chips.items() %}
       <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
         {{ meta[0] }}
       </a>

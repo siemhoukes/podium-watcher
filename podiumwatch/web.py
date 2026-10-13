@@ -18,6 +18,7 @@ from flask import Flask, redirect, render_template, request
 
 from . import categories, clock, deals, forecast, health
 from .models import AVAILABLE, LIMITED, SOLD_OUT
+from .venues import ADAPTERS
 
 DB_PATH = Path(
     os.environ.get(
@@ -39,6 +40,13 @@ VENUE_META = {
     "paradox": ("Paradox", "Tilburg", 5),
     "013": ("013", "Tilburg", 5),
 }
+
+# Venues the poller actually reads. VENUE_META keeps switched-off ones such as
+# TivoliVredenburg so their old rows still have a name, but they get no
+# filter chip and no health check: a venue nobody polls "never ran", and a
+# banner saying so on every page for five weeks teaches you to ignore it.
+ACTIVE = [a.venue_id for a in ADAPTERS]
+VENUE_CHIPS = {k: v for k, v in VENUE_META.items() if k in ACTIVE}
 
 # Templates live at the project root, not inside the package, so Flask's
 # default of `podiumwatch/templates` has to be overridden.
@@ -254,7 +262,7 @@ def index():
         rows = _rows_for(conn, now, now + timedelta(days=days))
         # Surfaced as a banner: a venue that silently stopped returning rows
         # would otherwise just look like a venue with nothing on.
-        problems = [v for v in health.venue_health(conn, list(VENUE_META))
+        problems = [v for v in health.venue_health(conn, ACTIVE)
                     if v["status"] != health.OK]
 
     total_found = len(rows)
@@ -302,6 +310,7 @@ def index():
         starred_count=sum(1 for r in rows if r["starred"]),
         price_steps=PRICE_STEPS,
         venue_meta=VENUE_META,
+        venue_chips=VENUE_CHIPS,
         hidden_count=total_found - len(rows),
         problems=problems,
         stats=_stats(),
@@ -369,7 +378,7 @@ def status():
     Without this a broken venue looks exactly like a quiet one.
     """
     with connect() as conn:
-        report = health.venue_health(conn, list(VENUE_META))
+        report = health.venue_health(conn, ACTIVE)
         runs = conn.execute(
             "SELECT venue_id, started_at, ok, shows_found, error"
             " FROM poll_runs ORDER BY started_at DESC LIMIT 40"
@@ -379,6 +388,7 @@ def status():
         report=report,
         runs=[dict(r) for r in runs],
         venue_meta=VENUE_META,
+        venue_chips=VENUE_CHIPS,
         stats=_stats(),
     )
 
@@ -440,6 +450,7 @@ def calendar_view():
         today=now,
         venues=venues,
         venue_meta=VENUE_META,
+        venue_chips=VENUE_CHIPS,
         only_starred=only_starred,
         hide_film=hide_film,
         stats=_stats(),
