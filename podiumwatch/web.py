@@ -149,6 +149,10 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
             if deal_ok else None
         )
         wstate, until = deals.window_state(s["venue_id"], starts_at, now)
+        if fare_source == "published":
+            # A youth fare the venue already sells -- Philzuid's EUR 12,50 --
+            # is buyable now, whatever the last-minute rule's window says.
+            wstate, until = "open", None
         look = forecast.outlook(history, starts_at, now)
 
         name, city, travel = VENUE_META.get(

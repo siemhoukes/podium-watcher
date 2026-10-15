@@ -37,6 +37,22 @@ age, so only the MgE one expires at 30.
 | Parktheater | Eindhoven | ~25 min + walk | €15 incl. drink | student / CJP | 24h |
 | Chassé | Breda | ~20 min | **50% off** | student / CJP | day of show |
 
+**How Tilburg's EUR 13,50 actually works** (checked October 2026, after Herman
+van Veen showed no youth price eight days before his shows). It is a
+Ticketmatic price type, *"t/m 26 jaar & student"*, remark *"last minute"*,
+carrying a date condition: it exists from exactly 48 hours before curtain and
+not a minute earlier. Every show inside that window had it — from 36% to 81%
+sold — so it is a timing rule, not a reward for slow sellers. The venue's own
+terms add: one ticket per person, not on sold-out shows, and "enkele
+voorstellingen zijn uitgesloten", which is then stated on the show page.
+
+The reader used to throw away every price type with a condition, treating the
+date window like the voucher-only "ambassadeurs" fare, so the fare was never
+seen. Now it is read, and its presence inside the window is the venue
+confirming the deal. Some concerts also carry a youth fare from the visiting
+orchestra itself — Philzuid's "t/m 26 jaar EUR 12,50", on sale months ahead —
+which is read too, and never mistaken for the door price.
+
 Tracked without a deal, because they are walkable and small enough to sell out:
 **Paradox** (jazz, 175 cap) and **013**.
 

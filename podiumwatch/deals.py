@@ -46,7 +46,14 @@ DEALS: dict[str, Deal] = {
         eligibility="t/m 26 of student",
         flat_cents=1350,
         includes_drink=True,
-        note="Alleen bij niet-uitverkochte voorstellingen.",
+        # From /nl/jong, October 2026. The fare is a Ticketmatic price type
+        # with a date condition that only appears 48 hours before curtain, so
+        # until then nothing anywhere says whether a show will get it.
+        note=(
+            "Verschijnt 48 uur voor aanvang; max. 1 kaartje per persoon. "
+            "Niet bij uitverkochte voorstellingen, en enkele zijn uitgesloten "
+            "(dat staat dan op de voorstellingspagina)."
+        ),
     ),
     "verkadefabriek": Deal(
         venue_id="verkadefabriek",

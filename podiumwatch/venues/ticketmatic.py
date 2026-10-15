@@ -35,7 +35,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
 
+from .. import clock
 from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Snapshot
 
 log = logging.getLogger(__name__)
@@ -52,6 +54,20 @@ AVAILABILITY_MAP = {
 _RANK = {"good": 3, "reduced": 2, "last": 1, "none": 0}
 
 _ACCOUNT_RE = re.compile(r'"account":\{"name":"[^"]*","id":"([^"]+)"')
+
+# The widget carries a lookup of every price type the account uses, separate
+# from the event's prices: {"id":"...","name":"t\/m 26 jaar & student",
+# "typeid":2301,"remark":"last minute",...}. The event itself only has ids.
+_PRICETYPE_NAME_RE = re.compile(
+    r'\{"id":"([A-Za-z0-9_-]{30,})","name":"((?:[^"\\]|\\.)*)",'
+    r'"typeid":\d+,"remark":"((?:[^"\\]|\\.)*)"'
+)
+
+# A youth or student fare, by its own name. Never the door price.
+_YOUTH_NAME_RE = re.compile(
+    r"student|jong|cjp|t/m\s*\d{2}\s*jaar|tot\s*\d{2}\s*jaar|onder\s*\d{2}|last.?minute",
+    re.I,
+)
 
 
 def parse_widget(html: str) -> tuple[dict | None, str | None]:
@@ -98,26 +114,104 @@ def availability_state(event: dict) -> tuple[str, str | None]:
     return AVAILABILITY_MAP.get(best, UNKNOWN), best
 
 
-def prices(event: dict) -> tuple[int | None, int | None]:
-    """-> (min, max) in cents, over price types anyone can buy.
+def price_type_names(html: str) -> dict[str, str]:
+    """-> {price type id: "name remark"} from the widget's lookup table."""
+    out: dict[str, str] = {}
+    for m in _PRICETYPE_NAME_RE.finditer(html or ""):
+        try:
+            name = json.loads(f'"{m.group(2)}"')
+            remark = json.loads(f'"{m.group(3)}"')
+        except ValueError:
+            continue
+        out[m.group(1)] = f"{name} {remark}".strip()
+    return out
 
-    Price types carrying `conditions` are gated -- Tilburg's 'ambassadeurs'
-    fare needs a Vriend voucher -- so they are not the normal price.
-    """
-    open_prices: list[int] = []
+
+def _price_types(event: dict):
+    """Yield (price type id, cents, conditions) for every price on offer."""
     # `"prices": null` happens -- five Verkadefabriek jazz concerts in October
     # 2026 -- and `.get("prices", {})` only covers a missing key.
     for contingent in (event.get("prices") or {}).get("contingents") or []:
-        for pt in contingent.get("pricetypes", []):
-            channels = pt.get("saleschannels") or []
-            gated = any(ch.get("conditions") for ch in channels)
+        for pt in contingent.get("pricetypes") or []:
             price = pt.get("price")
-            if gated or price is None:
+            if price is None:
                 continue
-            open_prices.append(int(round(float(price) * 100)))
-    if not open_prices:
+            conditions = [
+                cd for ch in pt.get("saleschannels") or []
+                for cd in ch.get("conditions") or []
+            ]
+            yield pt.get("pricetypeid"), int(round(float(price) * 100)), conditions
+
+
+def _is_youth(type_id: str | None, names: dict[str, str] | None) -> bool:
+    return bool(names and type_id in names and _YOUTH_NAME_RE.search(names[type_id]))
+
+
+def prices(event: dict, names: dict[str, str] | None = None) -> tuple[int | None, int | None]:
+    """-> (min, max) in cents of the normal fare: what anyone pays at the door.
+
+    Two kinds of price type are not that:
+
+    - anything with `conditions`. Tilburg's 'ambassadeurs' fare needs a Vriend
+      voucher, and its EUR 13,50 youth fare carries a *date* condition -- it
+      only exists from 48 hours before curtain;
+    - a youth fare without conditions. Philzuid sells 't/m 26 jaar EUR 12,50'
+      on every concert, unconditionally, and read as the cheapest normal price
+      it made a EUR 42 seat look like a EUR 12,50 one with nothing to save --
+      the Theater Rotterdam 't/m 30 jaar' mistake again, here.
+    """
+    normal = [
+        cents for type_id, cents, conditions in _price_types(event)
+        if not conditions and not _is_youth(type_id, names)
+    ]
+    if not normal:
         return None, None
-    return min(open_prices), max(open_prices)
+    return min(normal), max(normal)
+
+
+def _date_window(condition: dict) -> tuple[datetime | None, datetime | None]:
+    value = condition.get("value") or {}
+    out = []
+    for key in ("start", "end"):
+        try:
+            out.append(datetime.fromisoformat(str(value.get(key))))
+        except ValueError:
+            out.append(None)
+    return out[0], out[1]
+
+
+def youth_fare(
+    event: dict, names: dict[str, str] | None = None, now: datetime | None = None
+) -> int | None:
+    """The cheapest youth/student fare on offer right now, in cents.
+
+    Either a youth fare sold without conditions (Philzuid's EUR 12,50), or a
+    last-minute one whose date window is open. Tilburg's 't/m 26 jaar &
+    student' EUR 13,50 is the second kind: it is added to the event exactly 48
+    hours before curtain ("relativeStart": 2 days), which is also why it was
+    never seen before -- every conditioned price type used to be discarded as
+    voucher-gated. Its presence is the venue confirming the deal for that show.
+    """
+    now = now or clock.now()
+    found: list[int] = []
+    for type_id, cents, conditions in _price_types(event):
+        if not cents:
+            continue
+        kinds = {c.get("type") for c in conditions}
+        if not conditions:
+            if _is_youth(type_id, names):
+                found.append(cents)
+        elif kinds == {"date"}:
+            start, end = _date_window(next(c for c in conditions if c.get("type") == "date"))
+            in_window = (start is None or start <= now) and (end is None or now <= end)
+            # Without the name lookup, a window that runs up to curtain is the
+            # last-minute fare; an early-bird window ends long before.
+            last_minute = all(
+                (c.get("value") or {}).get("relativeEnd") == 0 for c in conditions
+            )
+            if in_window and (_is_youth(type_id, names) or (not names and last_minute)):
+                found.append(cents)
+    return min(found) if found else None
 
 
 def seat_counts(fetcher, account: str, event_id: str) -> tuple[int | None, int | None]:
@@ -166,9 +260,13 @@ def enrich_from_widget(fetcher, ticket_url: str, snap: Snapshot) -> bool:
         snap.state = state
     snap.note = word
 
-    lo, hi = prices(event)
+    names = price_type_names(html)
+    lo, hi = prices(event, names)
     if lo is not None:
         snap.price_min_cents, snap.price_max_cents = lo, hi
+    youth = youth_fare(event, names)
+    if youth is not None:
+        snap.price_student_cents = youth
 
     # Only seated events have a plan worth asking about.
     if account and event.get("id") and event.get("seatingplancontingents"):
