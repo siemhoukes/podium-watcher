@@ -5,3 +5,10 @@ data/*.sqlite3-wal
 data/*.sqlite3-shm
 config.local.yaml
 .venv/
+
+# Secrets never belong in git. .env.example lists the variables; the real
+# values live on the Pi in /etc/podium-watcher/podium.env.
+.env
+*.env
+.env.*
+!.env.example
