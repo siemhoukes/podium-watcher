@@ -38,7 +38,7 @@ import re
 from datetime import datetime
 
 from .. import clock
-from ..models import AVAILABLE, LIMITED, SOLD_OUT, UNKNOWN, Snapshot
+from ..models import AVAILABLE, LIMITED, SOLD_ELSEWHERE, SOLD_OUT, UNKNOWN, Snapshot
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,16 @@ _PRICETYPE_NAME_RE = re.compile(
     r'\{"id":"([A-Za-z0-9_-]{30,})","name":"((?:[^"\\]|\\.)*)",'
     r'"typeid":\d+,"remark":"((?:[^"\\]|\\.)*)"'
 )
+
+# Price types that exist but are not what a walk-up buyer pays: memberships,
+# passes, free companion tickets. Verkadefabriek sells "Cineville" at EUR 0 with
+# no condition attached, which made a EUR 6 film talk read as free.
+_NOT_DOOR_NAME_RE = re.compile(
+    r"cineville|jaarkaart|seizoenpas|abonnement|vriend|begeleider|vrijkaart|"
+    r"rolstoel|donateur|personeel|pers\b|derden",
+    re.I,
+)
+_THIRD_PARTY_RE = re.compile(r"verkoop via derden", re.I)
 
 # A youth or student fare, by its own name. Never the door price.
 _YOUTH_NAME_RE = re.compile(
@@ -163,10 +173,29 @@ def prices(event: dict, names: dict[str, str] | None = None) -> tuple[int | None
     normal = [
         cents for type_id, cents, conditions in _price_types(event)
         if not conditions and not _is_youth(type_id, names)
+        and not (names and _NOT_DOOR_NAME_RE.search(names.get(type_id, "")))
     ]
+    # A EUR 0 price type beside paid ones is a pass of some kind, whatever it
+    # is called. Only when everything is EUR 0 is the event actually free.
+    if any(normal):
+        normal = [cents for cents in normal if cents]
     if not normal:
         return None, None
     return min(normal), max(normal)
+
+
+def sold_elsewhere(event: dict, names: dict[str, str] | None) -> bool:
+    """The venue lists it, but its only price is 'Verkoop via derden'.
+
+    Verkadefabriek's jazz series is sold this way; read as a price it made
+    every concert in it look free.
+    """
+    if not names:
+        return False
+    types = list(_price_types(event))
+    return bool(types) and all(
+        _THIRD_PARTY_RE.search(names.get(type_id, "")) for type_id, _, _ in types
+    )
 
 
 def _date_window(condition: dict) -> tuple[datetime | None, datetime | None]:
@@ -261,6 +290,10 @@ def enrich_from_widget(fetcher, ticket_url: str, snap: Snapshot) -> bool:
     snap.note = word
 
     names = price_type_names(html)
+    if sold_elsewhere(event, names):
+        snap.note = SOLD_ELSEWHERE
+        snap.price_min_cents = snap.price_max_cents = None
+        return True
     lo, hi = prices(event, names)
     if lo is not None:
         snap.price_min_cents, snap.price_max_cents = lo, hi

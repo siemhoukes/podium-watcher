@@ -111,6 +111,13 @@
   </div>
 
   <div class="calfilters">
+    <a class="chip {{ 'on' if 'alle' in music_sel }}"
+       href="{{ qs(muziek=None if 'alle' in music_sel else 'alle') }}">alle muziek</a>
+    {% for key, label in music_chips %}
+      <a class="chip {{ 'on' if key in music_sel }}" href="{{ toggle_music(key) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <div class="calfilters">
     <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle podia</a>
     {% for vid, meta in venue_chips.items() %}
       <a class="chip {{ 'on' if vid in venues }}" href="{{ toggle_venue(vid) }}">
@@ -120,7 +127,7 @@
     <a class="switch {{ 'on' if only_starred }}" href="{{ qs(fav=None if only_starred else '1') }}">
       <span class="track"><i></i></span> alleen favorieten
     </a>
-    <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
+    <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='1' if hide_film else None) }}">
       <span class="track"><i></i></span> film tonen
     </a>
   </div>
@@ -153,7 +160,7 @@
                     <span class="name">{{ r.title }}</span>
                     <span class="meta">
                       {{ r.starts_at.strftime('%H:%M') }} ·
-                      {{ r.fare | euro }} · {{ r.city }}
+                      {{ r.fare | euro }}{% if r.youth_status == 'verwacht' %}?{% endif %} · {{ r.city }}
                     </span>
                   </a>
                 {% endfor %}
@@ -172,6 +179,7 @@
     <span><i class="swatch s-likely"></i>ruim zitplaats</span>
     <span><i class="swatch s-tight"></i>krap of favoriet</span>
     <span><i class="swatch s-unknown"></i>geen stoelentelling</span>
+    <span>€13,50? = verwacht, nog niet in de verkoop</span>
     <span>uitverkocht, jeugd en verborgen niet getoond</span>
   </div>
 {% endblock %}

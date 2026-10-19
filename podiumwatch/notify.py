@@ -33,6 +33,7 @@ from email.message import EmailMessage
 import requests
 
 from . import categories, clock, deals, health, music
+from .models import SOLD_ELSEWHERE
 
 log = logging.getLogger(__name__)
 
@@ -332,7 +333,7 @@ def due_music_alerts(conn, now: datetime | None = None) -> list[dict]:
             " WHERE show_id = ? ORDER BY observed_at DESC LIMIT 1",
             (row["id"],),
         ).fetchone()
-        if not latest or latest["state"] == "sold_out":
+        if not latest or latest["state"] == "sold_out" or latest["note"] == SOLD_ELSEWHERE:
             continue
 
         starts_at = datetime.fromisoformat(row["starts_at"])
@@ -607,11 +608,11 @@ def digest_rows(conn, days: int = DIGEST_DAYS, now: datetime | None = None) -> l
             continue
         latest = conn.execute(
             "SELECT state, seats_free, seats_total, price_min_cents,"
-            " price_student_cents FROM snapshots WHERE show_id = ?"
+            " price_student_cents, note FROM snapshots WHERE show_id = ?"
             " ORDER BY observed_at DESC LIMIT 1",
             (row["id"],),
         ).fetchone()
-        if not latest or latest["state"] == "sold_out":
+        if not latest or latest["state"] == "sold_out" or latest["note"] == SOLD_ELSEWHERE:
             continue
 
         fare = deals.deal_price_cents(

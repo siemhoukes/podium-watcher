@@ -171,3 +171,34 @@ def test_runs_record_why_they_failed_or_fell_short(tmp_path, monkeypatch):
     # Stamped before the fetch, so every show the run saw is newer than it.
     seen = [r["last_seen"] for r in conn.execute("SELECT last_seen FROM shows")]
     assert seen and all(stamp >= runs["half"]["started_at"] for stamp in seen)
+
+
+def test_a_stale_free_price_is_not_reused_and_third_party_sales_stay_marked(db):
+    """Before the reader learned about Cineville and 'Verkoop via derden',
+    it stored EUR 0 floors. Reusing them kept far-off concerts 'free', and a
+    run that did not re-read the box office dropped the third-party label."""
+    from podiumwatch.models import SOLD_ELSEWHERE
+
+    def snap(ext, price_min, price_max, note=None):
+        show_id = db.upsert_show(Show(
+            venue_id="verkadefabriek", external_id=ext, title=ext,
+            starts_at=NOW + timedelta(days=30), url="u",
+        ))
+        db.add_snapshot(show_id, Snapshot(
+            price_min_cents=price_min, price_max_cents=price_max, note=note))
+
+    snap("filmpraat", 0, 600)
+    assert db.known_price("verkadefabriek", "filmpraat") is None
+
+    snap("jazz", 0, 0)
+    snap("jazz", None, None, note=SOLD_ELSEWHERE)
+    assert db.known_sold_elsewhere("verkadefabriek", "jazz")
+
+    # An adapter that fetches nothing: only the cache speaks.
+    pairs_ = [(Show(venue_id="verkadefabriek", external_id="jazz", title="jazz",
+                    starts_at=NOW + timedelta(days=30), url="u"), Snapshot())]
+    poller._enrich(db, type("A", (), {"enrich_budget": 1, "venue_id": "verkadefabriek",
+                                      "enrich": lambda self, s, n, cached_price=None: False})(),
+                   pairs_)
+    assert pairs_[0][1].note == SOLD_ELSEWHERE
+    assert pairs_[0][1].price_min_cents is None

@@ -9,7 +9,7 @@ from pathlib import Path
 from . import clock, notify
 from .db import Database, utcnow
 from .http import Fetcher
-from .models import Snapshot, Show
+from .models import SOLD_ELSEWHERE, Snapshot, Show
 from .venues import ADAPTERS
 from .venues.base import FetchError
 
@@ -65,14 +65,25 @@ def _enrich(db: Database, adapter, pairs: list[tuple[Show, Snapshot]]) -> int:
         }
 
     cached_for: dict[tuple[str, str], tuple | None] = {}
+    elsewhere: set[tuple[str, str]] = set()
     for show, snap in upcoming:
         key = (show.venue_id, show.external_id)
+        if db.known_sold_elsewhere(*key):
+            # Keep saying so between box-office readings.
+            elsewhere.add(key)
+            snap.note = SOLD_ELSEWHERE
+            cached_for[key] = None
+            continue
         cached = db.known_price(*key)
         cached_for[key] = cached
         if snap.price_min_cents is None and cached is not None:
             snap.price_min_cents, snap.price_max_cents = cached
 
-    never_priced = [p for p in upcoming if cached_for[(p[0].venue_id, p[0].external_id)] is None]
+    never_priced = [
+        p for p in upcoming
+        if cached_for[(p[0].venue_id, p[0].external_id)] is None
+        and (p[0].venue_id, p[0].external_id) not in elsewhere
+    ]
     reserved = min(len(never_priced), int(budget * BACKLOG_SHARE))
     # Take the backlog from the far end, since the near end is covered anyway.
     backlog = never_priced[-reserved:] if reserved else []

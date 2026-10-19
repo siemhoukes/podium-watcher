@@ -102,3 +102,35 @@ def test_without_the_name_lookup_a_window_ending_at_curtain_still_counts():
     assert ticketmatic.youth_fare(
         early_bird, None, now=datetime(2026, 8, 20)
     ) is None
+
+
+CINEVILLE = "C" * 40
+DERDEN = "D" * 40
+VF_NAMES = ticketmatic.price_type_names(
+    '"pricetypes":{'
+    f'"{NORMAAL}":{{"id":"{NORMAAL}","name":"Normaal","typeid":2301,"remark":"","x":0}},'
+    f'"{CINEVILLE}":{{"id":"{CINEVILLE}","name":"Cineville","typeid":2301,'
+    '"remark":"Je kunt je ticket ophalen aan de kassa","x":0},'
+    f'"{DERDEN}":{{"id":"{DERDEN}","name":"Verkoop via derden","typeid":2301,"remark":"","x":0}}'
+    '}'
+)
+
+
+def test_a_membership_price_is_not_the_door_price():
+    """Verkadefabriek's 'Filmpraat': Cineville EUR 0 beside Normaal EUR 6."""
+    filmpraat = event((CINEVILLE, 0.0, []), (NORMAAL, 6.0, []))
+    assert ticketmatic.prices(filmpraat, VF_NAMES) == (600, 600)
+    # Even without names, a EUR 0 beside paid prices is some kind of pass.
+    assert ticketmatic.prices(filmpraat, None) == (600, 600)
+
+
+def test_a_concert_sold_by_someone_else_is_not_free():
+    """The Verkadefabriek jazz series: one price type, 'Verkoop via derden'."""
+    jazz = event((DERDEN, 0.0, []))
+    assert ticketmatic.sold_elsewhere(jazz, VF_NAMES)
+    assert not ticketmatic.sold_elsewhere(event((NORMAAL, 0.0, [])), VF_NAMES)
+
+
+def test_a_genuinely_free_concert_stays_free():
+    """Tilburg's lunch concerts: every price is EUR 0, and that is the truth."""
+    assert ticketmatic.prices(event((NORMAAL, 0.0, [])), NAMES) == (0, 0)

@@ -54,3 +54,9 @@ class Snapshot:
         if self.seats_free is None or not self.seats_total:
             return None
         return 1.0 - (self.seats_free / self.seats_total)
+
+
+# Snapshot note for an event the venue lists but someone else sells. Its only
+# Ticketmatic price is "Verkoop via derden, EUR 0" -- not free, and not
+# something the venue's own discount can reach.
+SOLD_ELSEWHERE = "verkoop via derden"

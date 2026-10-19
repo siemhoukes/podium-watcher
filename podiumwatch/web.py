@@ -17,7 +17,7 @@ from urllib.parse import quote_plus
 from flask import Flask, redirect, render_template, request
 
 from . import categories, clock, deals, forecast, health, music
-from .models import AVAILABLE, LIMITED, SOLD_OUT
+from .models import AVAILABLE, LIMITED, SOLD_ELSEWHERE, SOLD_OUT
 from .venues import ADAPTERS
 from .venues.ticketmatic import AVAILABILITY_MAP as _BOX_OFFICE_WORDS
 
@@ -138,7 +138,10 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         price_min = latest.get("price_min_cents")
         price_student = latest.get("price_student_cents")
         deal = deals.deal_for(s["venue_id"])
-        deal_ok = deals.deal_applies(s["venue_id"], s["ticket_url"])
+        deal_ok = (
+            deals.deal_applies(s["venue_id"], s["ticket_url"])
+            and latest.get("note") != SOLD_ELSEWHERE
+        )
         # Sold through a third party: quote no student fare rather than a
         # wrong one.
         fare = (
@@ -160,21 +163,28 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
         youth = deals.youth_status(
             s["venue_id"], starts_at, now, price_student, box_office_read_at
         )
+        if price_min == 0:
+            # A free concert (Tilburg's lunch concerts) has no youth fare to
+            # miss; "geen jongerenprijs" there reads like a warning.
+            youth = None
         # No deal on this show, as opposed to an unknown one: Tilburg's box
         # office read inside the window without the youth fare, or a deal that
         # only exists where the venue publishes it (de Doelen) and this concert
         # publishes none. The fare helper would fall back to the door price
         # here, which would show "jongerentarief" over a full-price ticket.
+        tags = json.loads(s["tags"]) if s["tags"] else []
+        marked = bool(deal and deal.marker_tag and deal.marker_tag in
+                      {t.strip().lower() for t in tags})
         no_deal = bool(
             deal_ok and deal is not None and (
                 youth == "geen"
-                or (deal.selective and deal.flat_cents is None and not price_student)
+                or (deal.selective and deal.flat_cents is None
+                    and not price_student and not marked)
             )
         )
         if no_deal:
             fare, fare_source = None, None
 
-        tags = json.loads(s["tags"]) if s["tags"] else []
         music_kind = music.kind(s["venue_id"], s["title"], s["subtitle"], tags)
 
         if fare_source == "published":
@@ -200,6 +210,7 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "music_label": music.LABELS.get(music_kind),
                 "youth_status": youth,
                 "no_deal": no_deal,
+                "deal_marked": marked,
                 "starts_at": starts_at,
                 "venue_id": s["venue_id"],
                 "external_id": s["external_id"],
@@ -453,6 +464,8 @@ def calendar_view():
     venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
     only_starred = request.args.get("fav", "0") == "1"
     hide_film = request.args.get("film", "0") != "1"
+    music_sel = [m for m in request.args.getlist("muziek")
+                 if m in music.FILTERS or m == "alle"]
 
     first = datetime(year, month, 1)
     last = datetime(year + (month == 12), (month % 12) + 1, 1)
@@ -462,6 +475,16 @@ def calendar_view():
     by_day: dict[int, list] = {}
     for r in rows:
         if r["outlook"].band == forecast.GONE or not r["deal_ok"]:
+            continue
+        # A month view still draws the days already gone; their shows can no
+        # longer be bought, and filled the first half of every month.
+        if r["starts_at"] < now:
+            continue
+        if r["no_deal"]:
+            continue
+        if "alle" in music_sel and not r["music"]:
+            continue
+        if music_sel and "alle" not in music_sel and not music.matches(r["music"], music_sel):
             continue
         if _has_tag(r["tags"], KIDS_TAGS):
             continue
@@ -502,6 +525,8 @@ def calendar_view():
         venue_chips=VENUE_CHIPS,
         only_starred=only_starred,
         hide_film=hide_film,
+        music_sel=music_sel,
+        music_chips=[(k, music.LABELS[k]) for k in music.FILTERS],
         stats=_stats(),
     )
 

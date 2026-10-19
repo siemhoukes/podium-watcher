@@ -40,6 +40,9 @@ class Deal:
     # Herman van Veen). Until it is seen on sale the fare is "verwacht"; once
     # the box office has been read inside the window without it, "geen".
     confirm_in_window: bool = False
+    # A genre label the venue puts on exactly the shows that carry the deal.
+    # Where it is present the deal exists, even if the card shows no price yet.
+    marker_tag: str | None = None
     note: str = ""
 
 
@@ -101,6 +104,7 @@ DEALS: dict[str, Deal] = {
         # So the fare is whatever the concert publishes, and nothing where it
         # publishes none.
         selective=True,
+        marker_tag="jongerentarief",
         note="Alleen bij concerten met het label 'jongerentarief'; beperkt aantal plaatsen.",
     ),
     "theaterrotterdam": Deal(

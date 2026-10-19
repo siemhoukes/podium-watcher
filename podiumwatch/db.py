@@ -12,7 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import Show, Snapshot
+from .models import SOLD_ELSEWHERE, Show, Snapshot
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS shows (
@@ -255,18 +255,43 @@ class Database:
         return changed
 
     def known_price(self, venue_id: str, external_id: str) -> tuple | None:
-        """Most recent non-null price for a show, so it is fetched only once."""
+        """Most recent non-null price for a show, so it is fetched only once.
+
+        A EUR 0 floor beside a paid ceiling is never reused: the current
+        reader cannot produce one, so it is a Cineville or third-party price
+        from before October 2026, and reusing it kept far-off concerts "free"
+        until they came close enough to be read again.
+        """
         row = self.conn.execute(
             """
             SELECT n.price_min_cents, n.price_max_cents
             FROM snapshots n JOIN shows s ON s.id = n.show_id
             WHERE s.venue_id = ? AND s.external_id = ?
               AND n.price_min_cents IS NOT NULL
+              AND NOT (n.price_min_cents = 0 AND COALESCE(n.price_max_cents, 0) > 0)
             ORDER BY n.observed_at DESC LIMIT 1
             """,
             (venue_id, external_id),
         ).fetchone()
         return (row["price_min_cents"], row["price_max_cents"]) if row else None
+
+    def known_sold_elsewhere(self, venue_id: str, external_id: str) -> bool:
+        """Whether the last box-office reading said someone else sells it.
+
+        Without this, a run that did not re-read the box office filled the
+        old EUR 0 back in and dropped the label, so the show flipped between
+        "sold elsewhere" and "free" from one poll to the next.
+        """
+        row = self.conn.execute(
+            """
+            SELECT n.note FROM snapshots n JOIN shows s ON s.id = n.show_id
+            WHERE s.venue_id = ? AND s.external_id = ?
+              AND (n.price_min_cents IS NOT NULL OR n.note = ?)
+            ORDER BY n.observed_at DESC LIMIT 1
+            """,
+            (venue_id, external_id, SOLD_ELSEWHERE),
+        ).fetchone()
+        return bool(row and row["note"] == SOLD_ELSEWHERE)
 
     def known_capacity(self, venue_id: str, external_id: str) -> int | None:
         """Last known hall size for a show.

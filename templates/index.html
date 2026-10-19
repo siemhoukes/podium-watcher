@@ -198,7 +198,7 @@
           t/m {{ step | euro }}
         </a>
       {% endfor %}
-      <a class="switch {{ 'on' if not hide_free }}" href="{{ qs(free='0' if hide_free else '1') }}">
+      <a class="switch {{ 'on' if not hide_free }}" href="{{ qs(free='1' if hide_free else None) }}">
         <span class="track"><i></i></span> gratis tonen
       </a>
     </div>
@@ -218,7 +218,7 @@
       {% for d in [7, 14, 30, 60] %}
         <a class="chip plain {{ 'on' if days == d }}" href="{{ qs(days=d) }}">{{ d }} dagen</a>
       {% endfor %}
-      <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='0' if hide_film else '1') }}">
+      <a class="switch {{ 'on' if not hide_film }}" href="{{ qs(film='1' if hide_film else None) }}">
         <span class="track"><i></i></span> film tonen
       </a>
     </div>
@@ -346,7 +346,8 @@
           {% endif %}
           {# MgE picks which concerts carry the Spotticket and does not say
              which, so the fare is a maybe rather than a promise. #}
-          {% if r.deal and r.deal.selective and r.fare_source != 'published' and not r.no_deal %}
+          {% if r.deal and r.deal.selective and r.fare_source != 'published'
+                and not r.no_deal and not r.deal_marked %}
             <span class="caveat" title="{{ r.deal.note }}">niet op elk concert</span>
           {% endif %}
           {% if r.youth_status == 'bevestigd' %}
@@ -368,7 +369,8 @@
           {% endif %}
         </div>
 
-        {% if r.window_state == 'open' %}
+        {% if r.no_deal %}
+        {% elif r.window_state == 'open' %}
           <div class="window open">venster open</div>
         {% elif r.window_state == 'soon' %}
           <div class="window soon">opent over {{ r.window_in | countdown }}</div>
