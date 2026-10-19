@@ -16,9 +16,10 @@ from urllib.parse import quote_plus
 
 from flask import Flask, redirect, render_template, request
 
-from . import categories, clock, deals, forecast, health
+from . import categories, clock, deals, forecast, health, music
 from .models import AVAILABLE, LIMITED, SOLD_OUT
 from .venues import ADAPTERS
+from .venues.ticketmatic import AVAILABILITY_MAP as _BOX_OFFICE_WORDS
 
 DB_PATH = Path(
     os.environ.get(
@@ -149,6 +150,33 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
             if deal_ok else None
         )
         wstate, until = deals.window_state(s["venue_id"], starts_at, now)
+
+        # Tilburg shows its youth fare only once it is on sale, and not on
+        # every show. A box-office reading inside the window settles it.
+        box_office_read_at = (
+            clock.local(latest.get("observed_at"))
+            if latest.get("note") in _BOX_OFFICE_WORDS else None
+        )
+        youth = deals.youth_status(
+            s["venue_id"], starts_at, now, price_student, box_office_read_at
+        )
+        # No deal on this show, as opposed to an unknown one: Tilburg's box
+        # office read inside the window without the youth fare, or a deal that
+        # only exists where the venue publishes it (de Doelen) and this concert
+        # publishes none. The fare helper would fall back to the door price
+        # here, which would show "jongerentarief" over a full-price ticket.
+        no_deal = bool(
+            deal_ok and deal is not None and (
+                youth == "geen"
+                or (deal.selective and deal.flat_cents is None and not price_student)
+            )
+        )
+        if no_deal:
+            fare, fare_source = None, None
+
+        tags = json.loads(s["tags"]) if s["tags"] else []
+        music_kind = music.kind(s["venue_id"], s["title"], s["subtitle"], tags)
+
         if fare_source == "published":
             # A youth fare the venue already sells -- Philzuid's EUR 12,50 --
             # is buyable now, whatever the last-minute rule's window says.
@@ -167,7 +195,11 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "url": s["url"],
                 "ticket_url": s["ticket_url"],
                 "hall": s["hall"],
-                "tags": json.loads(s["tags"]) if s["tags"] else [],
+                "tags": tags,
+                "music": music_kind,
+                "music_label": music.LABELS.get(music_kind),
+                "youth_status": youth,
+                "no_deal": no_deal,
                 "starts_at": starts_at,
                 "venue_id": s["venue_id"],
                 "external_id": s["external_id"],
@@ -200,7 +232,8 @@ def _rows_for(conn, start: datetime, end: datetime) -> list[dict]:
                 "rank": _rank(
                     look, fare, travel,
                     max(0.0, (starts_at - now).total_seconds() / 86400),
-                    has_deal=deal is not None,
+                    has_deal=deal is not None and not no_deal,
+                    music_kind=music_kind,
                 ),
             }
         )
@@ -219,7 +252,7 @@ _has_tag = categories.has_tag
 
 
 def _rank(look, fare: int | None, travel: int, days_away: float,
-          has_deal: bool = True) -> float:
+          has_deal: bool = True, music_kind: str | None = None) -> float:
     """Best bet = you can probably get in, it is cheap, close, and soon.
 
     'Soon' is in here because every deal is last-minute: a show three days
@@ -244,6 +277,10 @@ def _rank(look, fare: int | None, travel: int, days_away: float,
     # full-price 013 concerts would otherwise crowd out the cheap seats.
     if not has_deal:
         score -= 0.20
+
+    # Live music is what you go out for, opera and orchestras most of all --
+    # and it is also where the discounts are.
+    score += music.WEIGHT.get(music_kind, 0.0)
     return score
 
 
@@ -260,6 +297,8 @@ def index():
     hide_free = request.args.get("free", "0") != "1"
     only_starred = request.args.get("fav", "0") == "1"
     show_hidden = request.args.get("verborgen", "0") == "1"
+    music_sel = [m for m in request.args.getlist("muziek")
+                 if m in music.FILTERS or m == "alle"]
 
     now = clock.now()
     with connect() as conn:
@@ -283,6 +322,10 @@ def index():
         rows = [r for r in rows if not _has_tag(r["tags"], FILM_TAGS)]
     if venues:
         rows = [r for r in rows if r["venue_id"] in venues]
+    if "alle" in music_sel:
+        rows = [r for r in rows if r["music"]]
+    elif music_sel:
+        rows = [r for r in rows if music.matches(r["music"], music_sel)]
     if max_price:
         # A show whose fare we cannot compute is kept: hiding it would be
         # pretending we know it is expensive.
@@ -311,6 +354,8 @@ def index():
         hide_free=hide_free,
         only_starred=only_starred,
         show_hidden=show_hidden,
+        music_sel=music_sel,
+        music_chips=[(k, music.LABELS[k]) for k in music.FILTERS],
         starred_count=sum(1 for r in rows if r["starred"]),
         price_steps=PRICE_STEPS,
         venue_meta=VENUE_META,
@@ -508,7 +553,17 @@ def _url_helpers():
             current = current + [venue_id]
         return qs(venue=current or None)
 
-    return {"qs": qs, "toggle_venue": toggle_venue}
+    def toggle_music(kind: str) -> str:
+        """A kind chip; picking one leaves 'alle muziek'."""
+        current = [m for m in request.args.getlist("muziek")
+                   if m in music.FILTERS]
+        if kind in current:
+            current = [m for m in current if m != kind]
+        else:
+            current = current + [kind]
+        return qs(muziek=current or None)
+
+    return {"qs": qs, "toggle_venue": toggle_venue, "toggle_music": toggle_music}
 
 
 @app.template_filter("euro")

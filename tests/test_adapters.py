@@ -499,3 +499,14 @@ def test_ticketmatic_event_with_null_prices_does_not_crash():
 
     assert ticketmatic.prices({"prices": None}) == (None, None)
     assert ticketmatic.prices({}) == (None, None)
+
+
+
+def test_a_sold_out_badge_is_not_part_of_the_title():
+    """'uitverkocht | Bach Collegium Japan' changed the title the moment the
+    concert sold out, which broke hiding a production by its title."""
+    from podiumwatch.venues.peppered import _STATUS_PREFIX_RE
+
+    assert _STATUS_PREFIX_RE.sub("", "uitverkocht | Bach Collegium Japan") == "Bach Collegium Japan"
+    assert _STATUS_PREFIX_RE.sub("", "Laatste kaarten |  Tosca") == "Tosca"
+    assert _STATUS_PREFIX_RE.sub("", "Uitverkocht? Nee") == "Uitverkocht? Nee"

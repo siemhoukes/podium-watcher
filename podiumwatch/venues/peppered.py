@@ -41,6 +41,11 @@ from .base import VenueAdapter, clean, euros_to_cents, parse_dutch_datetime
 log = logging.getLogger(__name__)
 
 _HAS_DIGITS = re.compile(r"\d")
+_STATUS_PREFIX_RE = re.compile(
+    r"^\s*(?:uitverkocht|laatste kaarten|bijna uitverkocht|geannuleerd|verplaatst|"
+    r"extra voorstelling|nieuw)\s*\|\s*",
+    re.I,
+)
 
 
 def cls_norm(text: str) -> str:
@@ -105,6 +110,11 @@ class PepperedAdapter(VenueAdapter):
         production_id = card.get("data-entry-id")
         title_el = card.select_one(".title")
         title = clean(title_el.get_text()) if title_el else None
+        if title:
+            # A sold-out card puts its badge inside the title: "uitverkocht |
+            # Bach Collegium Japan". Left in, the title changes the moment a
+            # show sells out, and hiding a production by title stops working.
+            title = _STATUS_PREFIX_RE.sub("", title) or title
         if not production_id or not title:
             return []
 
@@ -128,12 +138,23 @@ class PepperedAdapter(VenueAdapter):
                 prod_type = cls[len("production-type-"):]
                 break
 
+        # The venue's own genre links: "klassiek", "orkest", "opera",
+        # "familie & jeugd" -- and at de Doelen "jongerentarief", which marks
+        # exactly the concerts that carry their youth rate. These used to be
+        # dropped, leaving every Peppered show tagged "default".
+        genres = [
+            g for g in (
+                clean(a.get_text(" ", strip=True)) for a in card.select(".genres__link")
+            ) if g
+        ]
+
         common = dict(
             production_id=production_id,
             title=title,
             subtitle=subtitle,
             url=url,
             prod_type=prod_type or "default",
+            genres=genres,
             price_min=price_min,
             price_max=price_max,
             price_student=price_student,
@@ -154,7 +175,7 @@ class PepperedAdapter(VenueAdapter):
         return [parsed] if parsed else []
 
     def _from_order_anchor(
-        self, a, *, production_id, title, subtitle, url, prod_type,
+        self, a, *, production_id, title, subtitle, url, prod_type, genres,
         price_min, price_max, price_student,
     ) -> tuple[Show, Snapshot] | None:
         starts_at = None
@@ -178,7 +199,7 @@ class PepperedAdapter(VenueAdapter):
                 starts_at=starts_at,
                 url=url,
                 hall=clean(a.get("data-event-hall")),
-                tags=[prod_type],
+                tags=[prod_type, *genres],
                 ticket_url=a.get("href"),
                 ticket_ref=a.get("data-event-id"),
             ),
@@ -191,7 +212,7 @@ class PepperedAdapter(VenueAdapter):
         )
 
     def _from_card_only(
-        self, card, *, production_id, title, subtitle, url, prod_type,
+        self, card, *, production_id, title, subtitle, url, prod_type, genres,
         price_min, price_max, price_student,
     ) -> tuple[Show, Snapshot] | None:
         top = card.select_one(".top-date")
@@ -240,7 +261,7 @@ class PepperedAdapter(VenueAdapter):
                 starts_at=starts_at,
                 url=url,
                 hall=clean(venue_el.get_text()) if venue_el else None,
-                tags=[prod_type],
+                tags=[prod_type, *genres],
                 ticket_url=None,  # nothing to buy
                 ticket_ref=None,
             ),

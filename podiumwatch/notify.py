@@ -32,7 +32,7 @@ from email.message import EmailMessage
 
 import requests
 
-from . import categories, clock, deals, health
+from . import categories, clock, deals, health, music
 
 log = logging.getLogger(__name__)
 
@@ -246,6 +246,182 @@ def send_window_alerts(conn, commit=True, now: datetime | None = None) -> int:
     if commit and delivered:
         conn.commit()
     return len(delivered)
+
+
+# --------------------------------------------------------------------------
+# Concerts with a discount on sale -- no star needed
+# --------------------------------------------------------------------------
+
+# Live music is what this tool is mostly for, and in six weeks nothing was
+# starred, so the starred-only window alert never fired once. This one needs
+# no star: any concert in the next week whose discount can be bought *now*.
+MUSIC = "music_deal"
+MUSIC_HORIZON = timedelta(days=7)
+MUSIC_MAX_PER_MAIL = 15
+
+_NL_DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+_NL_MONTHS = ["", "jan", "feb", "mrt", "apr", "mei", "jun",
+              "jul", "aug", "sep", "okt", "nov", "dec"]
+
+
+def _nl_when(dt: datetime) -> str:
+    return f"{_NL_DAYS[dt.weekday()]} {dt.day} {_NL_MONTHS[dt.month]} {dt:%H:%M}"
+
+
+def _euro(cents: int | None) -> str:
+    return f"€{cents / 100:.2f}".replace(".", ",") if cents is not None else "?"
+
+
+def due_music_alerts(conn, now: datetime | None = None) -> list[dict]:
+    """Concerts in the next week whose discount is on sale right now.
+
+    "On sale" is strict, because a mail is a promise:
+
+    - Tilburg only once its youth fare is actually in the box office -- it is
+      added 48 hours before curtain and left off some shows entirely;
+    - de Doelen only where the concert publishes its youth rate;
+    - a youth fare the venue already sells (Philzuid's EUR 12,50) at once;
+    - a last-minute rule once its window is open, MgE's Spotticket flagged
+      as a maybe because they pick which concerts carry it;
+    - and only if it is actually cheaper than the door.
+    """
+    from .venues.ticketmatic import AVAILABILITY_MAP
+
+    now = now or clock.now()
+    rows = conn.execute(
+        """
+        SELECT s.id, s.venue_id, s.external_id, s.title, s.subtitle, s.starts_at,
+               s.url, s.hall, s.tags, s.ticket_url, s.last_seen
+        FROM shows s
+        WHERE s.starts_at > ? AND s.starts_at < ?
+        ORDER BY s.starts_at
+        """,
+        (now.isoformat(), (now + MUSIC_HORIZON).isoformat()),
+    ).fetchall()
+    already = {
+        (r["venue_id"], r["external_id"])
+        for r in conn.execute(
+            "SELECT venue_id, external_id FROM alerts_sent WHERE kind = ?", (MUSIC,)
+        )
+    }
+    hidden = {
+        (r["venue_id"], r["title"])
+        for r in conn.execute("SELECT venue_id, title FROM hidden_productions")
+    }
+    cutoffs = health.seen_cutoffs(conn)
+
+    due = []
+    for row in rows:
+        if (row["venue_id"], row["external_id"]) in already:
+            continue
+        if (row["venue_id"], row["title"]) in hidden or _vanished(row, cutoffs):
+            continue
+        tags = json.loads(row["tags"]) if row["tags"] else []
+        kind = music.kind(row["venue_id"], row["title"], row["subtitle"], tags)
+        if not kind:
+            continue
+        deal = deals.deal_for(row["venue_id"])
+        if deal is None or not deals.deal_applies(row["venue_id"], row["ticket_url"]):
+            continue
+        latest = conn.execute(
+            "SELECT observed_at, state, seats_free, seats_total, price_min_cents,"
+            " price_max_cents, price_student_cents, note FROM snapshots"
+            " WHERE show_id = ? ORDER BY observed_at DESC LIMIT 1",
+            (row["id"],),
+        ).fetchone()
+        if not latest or latest["state"] == "sold_out":
+            continue
+
+        starts_at = datetime.fromisoformat(row["starts_at"])
+        published = latest["price_student_cents"]
+        box_office_read_at = (
+            clock.local(latest["observed_at"])
+            if latest["note"] in AVAILABILITY_MAP else None
+        )
+        youth = deals.youth_status(
+            row["venue_id"], starts_at, now, published, box_office_read_at
+        )
+        if youth in ("verwacht", "geen"):
+            continue
+        if deal.selective and deal.flat_cents is None and not published:
+            continue
+        window, _ = deals.window_state(row["venue_id"], starts_at, now)
+        if window != "open" and not published:
+            continue
+        fare = deals.deal_price_cents(row["venue_id"], latest["price_min_cents"], published)
+        door = latest["price_min_cents"]
+        if not fare or (door is not None and fare >= door):
+            continue
+
+        item = dict(row)
+        item.update(
+            starts_at=starts_at, kind=kind, fare=fare, snapshot=dict(latest),
+            confirmed=youth == "bevestigd" or bool(published),
+            maybe=deal.selective and not published,
+        )
+        due.append(item)
+
+    # Opera and orchestras first, then the soonest.
+    due.sort(key=lambda i: (-music.WEIGHT.get(i["kind"], 0.0), i["starts_at"]))
+    return due
+
+
+def format_music_mail(due: list[dict]) -> tuple[str, str]:
+    names = _venue_names()
+    first = due[0]
+    if len(due) == 1:
+        subject = (f"Podium: {music.LABELS[first['kind']].lower()} · {first['title']} "
+                   f"voor {_euro(first['fare'])}")
+    else:
+        subject = f"Podium: {len(due)} concerten met korting deze week"
+
+    lines = []
+    for item in due:
+        snap = item["snapshot"]
+        door = snap.get("price_min_cents")
+        door_max = snap.get("price_max_cents")
+        normal = _euro(door) + (f"–{_euro(door_max)}" if door_max and door and door_max > door else "")
+        sure = "bevestigd" if item["confirmed"] else ("mogelijk — niet op elk concert" if item["maybe"] else "")
+        lines.append(f"{music.LABELS[item['kind']]} · {item['title']}")
+        if item.get("subtitle"):
+            lines.append(f"  {item['subtitle']}")
+        lines.append(
+            f"  {_nl_when(item['starts_at'])} · {names.get(item['venue_id'], item['venue_id'])}"
+        )
+        lines.append(
+            f"  {_euro(item['fare'])} (normaal {normal})" + (f" · {sure}" if sure else "")
+        )
+        free, total = snap.get("seats_free"), snap.get("seats_total")
+        if free is not None and total:
+            lines.append(f"  nog {free} van {total} plaatsen vrij")
+        if item.get("url"):
+            lines.append(f"  {item['url']}")
+        lines.append("")
+    lines.append("Alle concerten: https://podium.siem.codes/?muziek=alle")
+    return subject, "\n".join(lines)
+
+
+def send_music_alerts(conn, now: datetime | None = None, commit: bool = True) -> int:
+    """Mail every concert that became buyable at a discount. Returns how many."""
+    due = due_music_alerts(conn, now=now)[:MUSIC_MAX_PER_MAIL]
+    if not due:
+        return 0
+    if not mail_enabled():
+        # Nothing recorded, so they still go out once mail is configured.
+        log.info("notify: %s concert alerts due but no mail configured", len(due))
+        return 0
+    if not send_mail(*format_music_mail(due)):
+        return 0
+    stamp = clock.now().isoformat(timespec="seconds")
+    for item in due:
+        conn.execute(
+            "INSERT OR REPLACE INTO alerts_sent (venue_id, external_id, kind, sent_at)"
+            " VALUES (?,?,?,?)",
+            (item["venue_id"], item["external_id"], MUSIC, stamp),
+        )
+    if commit:
+        conn.commit()
+    return len(due)
 
 
 # --------------------------------------------------------------------------

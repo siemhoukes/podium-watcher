@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -270,3 +271,69 @@ def test_digest_leaves_out_shows_the_venue_no_longer_lists(conn):
     )
     titles = [r["title"] for r in notify.digest_rows(conn, now=NOW)]
     assert titles == ["Nog op de agenda"]
+
+
+# --------------------------------------------------------------------------
+# Concerts with a discount on sale -- mailed without a star
+# --------------------------------------------------------------------------
+
+def concert(conn, venue, ext, title, tags, hours, ticket_url, door, youth=None,
+            note="good", state="available", read_minutes_ago=10):
+    starts = NOW + timedelta(hours=hours)
+    cur = conn.execute(
+        "INSERT INTO shows (venue_id, external_id, title, starts_at, url, tags,"
+        " ticket_url, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+        (venue, ext, title, starts.isoformat(), f"https://e.test/{ext}",
+         json.dumps(tags), ticket_url, NOW.isoformat(), NOW.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO snapshots (show_id, observed_at, state, price_min_cents,"
+        " price_max_cents, price_student_cents, note, seats_free, seats_total)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (cur.lastrowid, (NOW - timedelta(minutes=read_minutes_ago)).isoformat(),
+         state, door, door, youth, note, 300, 766),
+    )
+    conn.commit()
+
+
+TM = "https://apps.ticketmatic.com/widgets/tilburg_theaters/addtickets?event=1"
+
+
+def test_concerts_with_a_discount_on_sale_are_mailed_without_a_star(conn, mailbox):
+    # Tilburg, inside the 48h window, youth fare seen in the box office.
+    concert(conn, "tilburg", "phil", "Philzuid", ["klassieke muziek"], 30, TM, 3200, youth=1350)
+    # Tilburg, inside the window, box office read -- and no youth fare.
+    concert(conn, "tilburg", "hvv", "Groot orkest", ["klassieke muziek"], 30, TM, 4450)
+    # Tilburg cabaret: a discount, but not music.
+    concert(conn, "tilburg", "cab", "Martijn Koning", ["cabaret & comedy"], 30, TM, 2150, youth=1350)
+    # de Doelen: only where the concert publishes its youth rate.
+    concert(conn, "doelen", "bach", "Bach Collegium Japan", ["klassiek", "jongerentarief"],
+            72, "https://www.dedoelen.nl/order/add/1", 3500, youth=1600, note=None)
+    concert(conn, "doelen", "noyouth", "Pianoavond", ["klassiek"],
+            72, "https://www.dedoelen.nl/order/add/2", 3500, note=None)
+    concert(conn, "doelen", "far", "Te ver weg", ["klassiek", "jongerentarief"],
+            24 * 10, "https://www.dedoelen.nl/order/add/3", 3500, youth=1600, note=None)
+    # MgE: Spotticket window open, but they pick which concerts carry it.
+    concert(conn, "mge", "mge1", "Strijkkwartet avond", ["Klassiek", "Strijkkwartet"],
+            20, "https://tickets.mge.nl/x", 2500, note=None)
+
+    due = notify.due_music_alerts(conn, now=NOW)
+    assert [d["external_id"] for d in due] == ["phil", "bach", "mge1"]
+    assert due[0]["confirmed"] and not due[0]["maybe"]
+    assert due[2]["maybe"]
+
+    assert notify.send_music_alerts(conn, now=NOW) == 3
+    assert len(mailbox) == 1
+    subject, body = mailbox[0]
+    assert "3 concerten" in subject
+    assert "bevestigd" in body and "mogelijk" in body
+    assert "Martijn Koning" not in body and "Groot orkest" not in body
+    # Recorded: the next poll stays quiet.
+    assert notify.send_music_alerts(conn, now=NOW) == 0
+
+
+def test_concert_alerts_wait_for_mail_to_be_configured(conn, monkeypatch):
+    concert(conn, "tilburg", "phil", "Philzuid", ["klassieke muziek"], 30, TM, 3200, youth=1350)
+    monkeypatch.setattr(notify, "SMTP_HOST", "")
+    assert notify.send_music_alerts(conn, now=NOW) == 0
+    assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 0

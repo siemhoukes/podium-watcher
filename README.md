@@ -29,7 +29,7 @@ age, so only the MgE one expires at 30.
 
 | Venue | City | Travel from Tilburg CS | Deal | Who | Window |
 |---|---|---|---|---|---|
-| de Doelen | Rotterdam | ~50 min | **€10** | t/m 30 | any time |
+| de Doelen | Rotterdam | ~50 min | €16, **only on concerts labelled "jongerentarief"** | t/m 30 | any time |
 | Theater Rotterdam | Rotterdam | ~65 min | **€10** | t/m 30, **no card needed** | any time |
 | Schouwburg & Concertzaal | Tilburg | 5 min walk | €13,50 incl. drink | t/m 26 **or student** | 48h, not sold out |
 | Verkadefabriek | Den Bosch | ~25 min | **€10** (film €8) | student, t/m 29 | 24h |
@@ -250,6 +250,36 @@ nothing rather than dressing one reading up as a forecast.
 Sold-out performances are kept in the database — they are the most informative
 thing that can happen to a show — and hidden from the list, since there is no
 point offering a ticket that does not exist.
+
+## Live music first
+
+Live music is what this is mostly for, and classical music is where the
+discounts are. `music.py` sorts every performance into opera, orkest,
+kamermuziek, jazz or other live music — or not music at all — and the
+dashboard has a chip for each. Opera and orchestras weigh most in "beste
+kansen", so they rise even without the filter.
+
+The venue's own genre decides. Titles alone mislead badly: Chassé's
+"Klassieker: De Tasjesdief (9+)" is a children's film, 013's "Symfonische
+deathmetal" is metal, and "Reflections — Nationale Opera & Ballet" is a ballet.
+Title words only narrow down a show the venue already calls music, or decide
+at venues with no genre at all, and then only on unmistakable words — "trio"
+or "kwartet" is as often jazz as chamber music. The Peppered venues used to
+lose their genre links entirely; they are kept now, which is also how de
+Doelen's "jongerentarief" label is seen.
+
+**Concert alerts need no star.** Any concert in the next week whose discount
+can be bought *now* is mailed, one mail per poll, opera and orchestras first:
+Tilburg only once its youth fare is actually in the box office, de Doelen only
+where the concert publishes its rate, MgE flagged as a maybe because they pick
+which concerts get a Spotticket.
+
+**What the dashboard promises is now what is on sale.** Tilburg's EUR 13,50
+shows as *verwacht* until its window opens, *bevestigd* once the box office
+sells it, and as no discount at all when the box office was read inside the
+window without it. De Doelen used to be quoted at EUR 10 on every concert;
+its price tables say "t/m 30 jaar EUR 16", and only where the concert carries
+its "jongerentarief" label — 42 of 87 in October 2026.
 
 ## Your own marks
 

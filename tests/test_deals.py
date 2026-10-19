@@ -133,10 +133,33 @@ def test_a_selective_deal_is_not_stamped_on_every_show():
     assert deals.deal_for("tivoli").flat_cents is None
 
 
-def test_doelen_youth_rate_is_flat_and_always_on():
-    """Unlike Tivoli, De Doelen advertises €10 on every concert it sells."""
-    assert deals.deal_price_cents("doelen", 4600) == 1000
-    assert deals.deal_for("doelen").selective is False
+def test_doelen_youth_rate_is_what_the_concert_publishes():
+    """It used to say EUR 10 on every concert. The price tables say
+    't/m 30 jaar EUR 16', and only on concerts labelled 'jongerentarief'."""
+    assert deals.deal_price_cents("doelen", 3500, 1600) == 1600
+    assert deals.deal_price_source("doelen", 3500, 1600) == "published"
+    # No published youth fare: no deal, rather than a promised one.
+    assert deals.deal_price_cents("doelen", 3500, None) == 3500
+    assert deals.deal_for("doelen").selective is True
+
+
+def test_tilburg_youth_fare_is_expected_until_seen_on_sale():
+    from datetime import datetime
+
+    starts = datetime(2026, 10, 23, 20, 15)
+    before = datetime(2026, 10, 20, 12, 0)
+    inside = datetime(2026, 10, 22, 12, 0)
+    read_inside = datetime(2026, 10, 22, 11, 5)
+    read_before = datetime(2026, 10, 21, 18, 0)
+
+    assert deals.youth_status("tilburg", starts, before, None, read_before) == "verwacht"
+    assert deals.youth_status("tilburg", starts, inside, 1350, read_inside) == "bevestigd"
+    # Herman van Veen's case: the box office was read inside the window and
+    # the youth fare was not there.
+    assert deals.youth_status("tilburg", starts, inside, None, read_inside) == "geen"
+    # A reading from before the window proves nothing either way.
+    assert deals.youth_status("tilburg", starts, inside, None, read_before) == "verwacht"
+    assert deals.youth_status("chasse", starts, inside, None, read_inside) is None
 
 
 def test_a_course_titled_as_one_is_filtered_even_without_the_tag():

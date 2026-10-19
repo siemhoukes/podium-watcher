@@ -181,8 +181,12 @@ def poll_once(db_path: str | Path = DEFAULT_DB, only: str | None = None) -> dict
             log.exception("alerting failed")
             summary["alerts"] = 0
         # Only on a full poll: a single-venue debug run says nothing about
-        # whether the others are healthy.
+        # whether the others are healthy, and should not mail concerts.
         if not only:
+            try:
+                summary["music_alerts"] = notify.send_music_alerts(db.conn)
+            except Exception:
+                log.exception("concert alerting failed")
             try:
                 summary["health_mails"] = notify.send_health_alerts(
                     db.conn, [a.venue_id for a in ADAPTERS]

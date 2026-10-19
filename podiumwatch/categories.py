@@ -11,7 +11,8 @@ sometimes, which is why it has its own toggle.
 
 from __future__ import annotations
 
-KIDS = {"jeugd & familie", "kinderen", "kids", "familie"}
+# Parktheater says "familie & jeugd" where Tilburg says "jeugd & familie".
+KIDS = {"jeugd & familie", "familie & jeugd", "kinderen", "kids", "familie"}
 FILM = {"movie", "film"}
 COURSES = {"cursus", "club", "workshop"}
 

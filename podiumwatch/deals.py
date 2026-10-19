@@ -35,6 +35,11 @@ class Deal:
     includes_drink: bool = False
     # Not every show is eligible; MgE picks specific concerts.
     selective: bool = False
+    # The venue only puts the fare on sale once its window opens, and leaves
+    # it off some shows altogether (Tilburg: children's shows, and very likely
+    # Herman van Veen). Until it is seen on sale the fare is "verwacht"; once
+    # the box office has been read inside the window without it, "geen".
+    confirm_in_window: bool = False
     note: str = ""
 
 
@@ -46,6 +51,7 @@ DEALS: dict[str, Deal] = {
         eligibility="t/m 26 of student",
         flat_cents=1350,
         includes_drink=True,
+        confirm_in_window=True,
         # From /nl/jong, October 2026. The fare is a Ticketmatic price type
         # with a date condition that only appears 48 hours before curtain, so
         # until then nothing anywhere says whether a show will get it.
@@ -84,13 +90,18 @@ DEALS: dict[str, Deal] = {
     ),
     "doelen": Deal(
         venue_id="doelen",
-        label="€10 jongerentarief",
+        label="jongerentarief t/m 30",
         # Not a last-minute deal at all: bookable from the moment tickets go
         # on sale, which is why the window is the whole run-up.
         window_hours=24 * 365,
         eligibility="t/m 30",
-        flat_cents=1000,
-        note="Beperkt aantal jongerenplaatsen; kan eerder op zijn dan de zaal.",
+        # No flat fare. This used to say EUR 10 on every concert. The price
+        # tables say otherwise (October 2026): "t/m 30 jaar EUR 16", and only
+        # on concerts carrying their own "jongerentarief" label -- 42 of 87.
+        # So the fare is whatever the concert publishes, and nothing where it
+        # publishes none.
+        selective=True,
+        note="Alleen bij concerten met het label 'jongerentarief'; beperkt aantal plaatsen.",
     ),
     "theaterrotterdam": Deal(
         venue_id="theaterrotterdam",
@@ -227,6 +238,33 @@ def deal_price_cents(
     if price_min_cents is not None and (fare is None or fare > price_min_cents):
         fare = price_min_cents
     return fare
+
+
+def youth_status(
+    venue_id: str,
+    starts_at: datetime | None,
+    now: datetime,
+    published_student_cents: int | None,
+    box_office_read_at: datetime | None,
+) -> str | None:
+    """'bevestigd', 'verwacht' or 'geen' -- for deals the venue only shows
+    once they are on sale. None for every other deal.
+
+    'geen' needs proof: the window is open *and* the box office was read
+    inside it without the fare there. A listing-only reading proves nothing.
+    """
+    deal = DEALS.get(venue_id)
+    if deal is None or not deal.confirm_in_window or starts_at is None:
+        return None
+    state, _ = window_state(venue_id, starts_at, now)
+    if state != "open":
+        return "verwacht"
+    if published_student_cents:
+        return "bevestigd"
+    opens = window_opens_at(venue_id, starts_at)
+    if box_office_read_at and opens and box_office_read_at >= opens:
+        return "geen"
+    return "verwacht"
 
 
 def deal_price_source(

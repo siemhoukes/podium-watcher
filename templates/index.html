@@ -117,6 +117,9 @@
   .status.limited   { color: var(--oxblood); }
   .status.unknown   { color: var(--ink-3); }
   .status .asof     { color: var(--ink-3); }
+  .where .genre     { color: var(--oxblood); letter-spacing: .04em; }
+  .dealname .confirmed { color: var(--green); font-family: var(--sans);
+                         font-size: 11px; letter-spacing: .06em; }
   .seats {
     font-family: var(--sans); font-size: 12px; color: var(--ink-2);
     margin-top: 6px; display: flex; align-items: center; gap: 9px;
@@ -168,6 +171,15 @@
 
 {% block content %}
   <div class="filters">
+    <div class="frow">
+      <span class="flabel">Muziek</span>
+      <a class="chip {{ 'on' if 'alle' in music_sel }}"
+         href="{{ qs(muziek=None if 'alle' in music_sel else 'alle') }}">alle muziek</a>
+      {% for key, label in music_chips %}
+        <a class="chip {{ 'on' if key in music_sel }}" href="{{ toggle_music(key) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+
     <div class="frow">
       <span class="flabel">Podium</span>
       <a class="chip {{ 'on' if not venues }}" href="{{ qs(venue=None) }}">alle</a>
@@ -268,6 +280,7 @@
         {% if r.subtitle %}<div class="sub">{{ r.subtitle }}</div>{% endif %}
 
         <div class="where">
+          {% if r.music_label %}<span class="genre">{{ r.music_label }}</span> · {% endif %}
           {{ r.venue }} · {{ r.city }}
           {% if r.travel <= 5 %}
             <span class="walk">· 5 min lopen</span>
@@ -318,19 +331,28 @@
       <div class="price">
         {% if r.fare %}
           <div class="fare">{{ r.fare | euro }}</div>
+        {% elif r.no_deal %}
+          <div class="fare unknown">{{ r.base_price | euro if r.base_price else 'geen korting' }}</div>
         {% else %}
           <div class="fare unknown">prijs onbekend</div>
         {% endif %}
         <div class="dealname">
-          {% if r.fare_source == 'published' %}
-            studentenprijs van het podium
+          {% if r.no_deal %}
+            {% if r.youth_status == 'geen' %}geen jongerenprijs in de verkoop{% else %}geen jongerentarief bij dit concert{% endif %}
+          {% elif r.fare_source == 'published' %}
+            jongerenprijs van het podium
           {% else %}
             {{ r.deal.label if r.deal else '' }}
           {% endif %}
           {# MgE picks which concerts carry the Spotticket and does not say
              which, so the fare is a maybe rather than a promise. #}
-          {% if r.deal and r.deal.selective and r.fare_source != 'published' %}
+          {% if r.deal and r.deal.selective and r.fare_source != 'published' and not r.no_deal %}
             <span class="caveat" title="{{ r.deal.note }}">niet op elk concert</span>
+          {% endif %}
+          {% if r.youth_status == 'bevestigd' %}
+            <span class="confirmed">bevestigd</span>
+          {% elif r.youth_status == 'verwacht' %}
+            <span class="caveat" title="{{ r.deal.note }}">verwacht</span>
           {% endif %}
         </div>
 
