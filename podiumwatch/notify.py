@@ -258,6 +258,9 @@ def send_window_alerts(conn, commit=True, now: datetime | None = None) -> int:
 MUSIC = "music_deal"
 MUSIC_HORIZON = timedelta(days=7)
 MUSIC_MAX_PER_MAIL = 15
+# A mail is for a real discount. Parktheater's CJP category is EUR 2,50 off a
+# EUR 48,50 seat -- true, and not worth a notification.
+MUSIC_MIN_SAVING = 0.25
 
 _NL_DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]
 _NL_MONTHS = ["", "jan", "feb", "mrt", "apr", "mei", "jun",
@@ -341,16 +344,24 @@ def due_music_alerts(conn, now: datetime | None = None) -> list[dict]:
         youth = deals.youth_status(
             row["venue_id"], starts_at, now, published, box_office_read_at
         )
-        if youth in ("verwacht", "geen"):
-            continue
-        if deal.selective and deal.flat_cents is None and not published:
-            continue
+        # What can be bought right now, and for how much.
         window, _ = deals.window_state(row["venue_id"], starts_at, now)
-        if window != "open" and not published:
+        if window == "open":
+            # Tilburg: open is not enough, the box office must sell it.
+            if youth in ("verwacht", "geen"):
+                continue
+            # de Doelen: no published youth rate, no deal.
+            if deal.selective and deal.flat_cents is None and not published:
+                continue
+            fare = deals.deal_price_cents(row["venue_id"], latest["price_min_cents"], published)
+        elif published:
+            # A youth fare already on sale before any last-minute window
+            # (Philzuid's EUR 12,50). The window's own fare is not, yet.
+            fare = published
+        else:
             continue
-        fare = deals.deal_price_cents(row["venue_id"], latest["price_min_cents"], published)
         door = latest["price_min_cents"]
-        if not fare or (door is not None and fare >= door):
+        if not fare or not door or fare > door * (1 - MUSIC_MIN_SAVING):
             continue
 
         item = dict(row)

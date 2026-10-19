@@ -337,3 +337,20 @@ def test_concert_alerts_wait_for_mail_to_be_configured(conn, monkeypatch):
     monkeypatch.setattr(notify, "SMTP_HOST", "")
     assert notify.send_music_alerts(conn, now=NOW) == 0
     assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 0
+
+
+
+def test_a_small_category_discount_is_not_worth_a_concert_mail(conn, mailbox):
+    """Parktheater's CJP price: EUR 46 against EUR 48,50, days before its window."""
+    concert(conn, "parktheater", "tosca", "Tosca", ["opera"], 72,
+            "https://www.parktheater.nl/order/add/1", 4850, youth=4600, note=None)
+    assert notify.due_music_alerts(conn, now=NOW) == []
+
+
+def test_a_youth_fare_already_on_sale_is_mailed_before_the_window(conn, mailbox):
+    """Philzuid sells 't/m 26 jaar EUR 12,50' months ahead of Tilburg's 48 hours."""
+    concert(conn, "tilburg", "phil", "Philzuid", ["klassieke muziek"], 24 * 5, TM, 3200,
+            youth=1250)
+    due = notify.due_music_alerts(conn, now=NOW)
+    assert [d["external_id"] for d in due] == ["phil"]
+    assert due[0]["fare"] == 1250
