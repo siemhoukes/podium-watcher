@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS alerts_sent (
     PRIMARY KEY (venue_id, external_id, kind)
 );
 
+-- Warning banners you closed, by what they said. A different problem has a
+-- different signature and shows again.
+CREATE TABLE IF NOT EXISTS dismissed_banners (
+    signature  TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+);
+
 -- Poll bookkeeping, so a silently-broken adapter is visible rather than
 -- looking like a venue with nothing on.
 CREATE TABLE IF NOT EXISTS poll_runs (

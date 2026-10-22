@@ -9,6 +9,7 @@ from __future__ import annotations
 import calendar as calmod
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -318,6 +319,9 @@ def index():
         # would otherwise just look like a venue with nothing on.
         problems = [v for v in health.venue_health(conn, ACTIVE)
                     if v["status"] in (health.FAIL, health.WARN)]
+        banner_signature = _banner_signature(problems)
+        if problems and _banner_dismissed(conn, banner_signature):
+            problems = []
 
     total_found = len(rows)
 
@@ -373,9 +377,61 @@ def index():
         venue_chips=VENUE_CHIPS,
         hidden_count=total_found - len(rows),
         problems=problems,
+        banner_signature=banner_signature,
         stats=_stats(),
         now=now,
     )
+
+
+# A closed banner stays closed this long, then the problem may speak again.
+BANNER_DISMISS_DAYS = 7
+
+
+def _banner_signature(problems: list[dict]) -> str:
+    """What the banner is about, without the parts that change every hour.
+
+    "Al 68 uur geen run" becomes "Al # uur geen run", so a closed banner does
+    not reopen just because the count went up -- but a new venue in trouble,
+    or a different reason, gives a different signature and shows again.
+    """
+    return "|".join(sorted(
+        f"{p['venue_id']}:{p['status']}:{re.sub(r'[0-9]+', '#', p['message'])}"
+        for p in problems
+    ))
+
+
+def _banner_dismissed(conn, signature: str) -> bool:
+    if not signature:
+        return False
+    since = (clock.now() - timedelta(days=BANNER_DISMISS_DAYS)).isoformat(timespec="seconds")
+    try:
+        return conn.execute(
+            "SELECT 1 FROM dismissed_banners WHERE signature = ? AND created_at >= ?",
+            (signature, since),
+        ).fetchone() is not None
+    except sqlite3.OperationalError:
+        return False  # table arrives with the next poll
+
+
+@app.post("/dismiss")
+def dismiss_banner():
+    signature = request.form.get("signature", "")[:2000]
+    if signature:
+        conn = connect_rw()
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS dismissed_banners"
+                " (signature TEXT PRIMARY KEY, created_at TEXT NOT NULL)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO dismissed_banners (signature, created_at)"
+                " VALUES (?, ?)",
+                (signature, clock.now().isoformat(timespec="seconds")),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return _back()
 
 
 def _music_selection() -> list[str]:

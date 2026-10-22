@@ -297,3 +297,37 @@ def test_a_known_bot_check_is_not_an_alarm_on_the_dashboard(tmp_path, monkeypatc
     assert "wachtrij" in html              # a real problem still is
     status = client.get("/status").get_data(as_text=True)
     assert "Bewust zo gelaten" in status   # but /status says what is going on
+
+
+
+def test_the_warning_banner_can_be_closed_until_the_problem_changes(tmp_path, monkeypatch):
+    path = tmp_path / "x.sqlite3"
+    db = Database(path)
+    now_utc = datetime.now(timezone.utc)
+
+    def run(venue, error, hours_ago=1):
+        db.conn.execute(
+            "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error, complete)"
+            " VALUES (?, ?, 0, 0, ?, 0)",
+            (venue, iso(now_utc - timedelta(hours=hours_ago)), error),
+        )
+        db.commit()
+
+    run("parktheater", "Agenda niet opgehaald: virtuele wachtrij (HTTP 200)")
+    monkeypatch.setattr(web, "DB_PATH", path.as_posix())
+    client = web.app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+    assert "wachtrij" in html
+    import re as _re
+    sig = _re.search(r'name="signature" value="([^"]*)"', html).group(1)
+    import html as _h
+    resp = client.post("/dismiss", data={"signature": _h.unescape(sig), "next": "/"})
+    assert resp.status_code in (302, 303)
+    assert "wachtrij" not in client.get("/").get_data(as_text=True)
+
+    # Another venue in trouble: a different problem, so it shows again.
+    run("doelen", "Agenda niet opgehaald: HTTP 500")
+    html = client.get("/").get_data(as_text=True)
+    assert "wachtrij" in html and "HTTP 500" in html
+    db.close()

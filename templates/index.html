@@ -77,7 +77,14 @@
     padding: 11px 14px; margin: 16px 0 4px;
     font-size: 14px; color: var(--ink);
   }
+  .alarm { position: relative; padding-right: 36px; }
   .alarm strong { color: var(--oxblood); font-weight: 600; }
+  .alarm .dismiss { position: absolute; top: 6px; right: 6px; margin: 0; }
+  .alarm .dismiss button {
+    background: none; border: none; cursor: pointer; padding: 4px 6px;
+    color: var(--ink-3); font-size: 14px; line-height: 1;
+  }
+  .alarm .dismiss button:hover { color: var(--oxblood); }
   .alarm a { margin-left: 8px; font-family: var(--sans); font-size: 11.5px; }
 
   .hiddennote {
@@ -226,6 +233,12 @@
 
   {% if problems %}
     <div class="alarm">
+      <form method="post" action="/dismiss" class="dismiss">
+        <input type="hidden" name="signature" value="{{ banner_signature }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button type="submit" title="Wegklikken tot er iets anders aan de hand is"
+                aria-label="melding wegklikken">✕</button>
+      </form>
       <strong>Let op:</strong>
       {% for p in problems %}
         {{ venue_meta.get(p.venue_id, [p.venue_id])[0] }} — {{ p.message }}
