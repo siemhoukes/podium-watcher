@@ -111,8 +111,8 @@
   </div>
 
   <div class="calfilters">
-    <a class="chip {{ 'on' if 'alle' in music_sel }}"
-       href="{{ qs(muziek=None if 'alle' in music_sel else 'alle') }}">alle muziek</a>
+    <a class="chip {{ 'on' if not music_sel }}" href="{{ qs(muziek='alles') }}">alles</a>
+    <a class="chip {{ 'on' if 'alle' in music_sel }}" href="{{ qs(muziek=None) }}">alle muziek</a>
     {% for key, label in music_chips %}
       <a class="chip {{ 'on' if key in music_sel }}" href="{{ toggle_music(key) }}">{{ label }}</a>
     {% endfor %}

@@ -516,6 +516,9 @@ def send_health_alerts(
         vid = v["venue_id"]
         pending = state.get((vid, HEALTH_PENDING))
         sent = (vid, HEALTH_SENT) in state
+        if v["status"] == health.LIMITED:
+            # Accepted on purpose: nothing to report, and nothing recovered.
+            continue
         if v["status"] == health.OK:
             if sent:
                 recovered.append(v)

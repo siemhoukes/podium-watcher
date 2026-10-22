@@ -185,3 +185,18 @@ def test_a_run_from_before_the_fix_never_decides_what_vanished(full):
     listed(full, "chasse", 70, utc(60 * 24 * 21), "unseen")
     assert health.vanished_counts(full, clock.now()) == {}
     assert health.seen_cutoffs(full) == {}
+
+
+
+def test_a_bot_check_after_some_pages_is_limited_not_a_warning(conn):
+    for i in range(4):
+        add(conn, "chasse", 130, minutes_ago=400 * (i + 1),
+            error="Pagina 3 niet opgehaald: botcheck (HTTP 403); 130 voorstellingen gelezen")
+    add(conn, "chasse", 129,
+        error="Pagina 3 niet opgehaald: botcheck (HTTP 403); 129 voorstellingen gelezen")
+    assert only(conn, "chasse")["status"] == health.LIMITED
+
+
+def test_a_page_that_failed_for_another_reason_still_warns(conn):
+    add(conn, "doelen", 100, error="Pagina 3 niet opgehaald: HTTP 500; 100 voorstellingen gelezen")
+    assert only(conn, "doelen")["status"] == health.WARN

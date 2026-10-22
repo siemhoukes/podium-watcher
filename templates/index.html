@@ -3,7 +3,7 @@
 {% block title %}Podium — komende voorstellingen{% endblock %}
 
 {% block navextra %}
-  <a href="{{ qs(sort='date' if sort != 'date' else 'rank') }}">
+  <a href="{{ qs(sort=None if sort != 'date' else 'rank') }}">
     op {{ 'datum' if sort != 'date' else 'beste kans' }}
   </a>
 {% endblock %}
@@ -173,8 +173,8 @@
   <div class="filters">
     <div class="frow">
       <span class="flabel">Muziek</span>
-      <a class="chip {{ 'on' if 'alle' in music_sel }}"
-         href="{{ qs(muziek=None if 'alle' in music_sel else 'alle') }}">alle muziek</a>
+      <a class="chip {{ 'on' if not music_sel }}" href="{{ qs(muziek='alles') }}">alles</a>
+      <a class="chip {{ 'on' if 'alle' in music_sel }}" href="{{ qs(muziek=None) }}">alle muziek</a>
       {% for key, label in music_chips %}
         <a class="chip {{ 'on' if key in music_sel }}" href="{{ toggle_music(key) }}">{{ label }}</a>
       {% endfor %}
@@ -237,7 +237,7 @@
 
   <p class="hiddennote">
     {{ rows | length }} getoond{% if hidden_count > 0 %}, {{ hidden_count }} verborgen
-    (uitverkocht, film, jeugd, of geen kassa){% endif %}. Uitverkochte
+    ({% if music_sel %}geen muziek, {% endif %}uitverkocht, film, jeugd, of geen kassa){% endif %}. Uitverkochte
     voorstellingen blijven wél in de database staan — die zijn juist het
     interessantst voor de voorspelling.
   </p>

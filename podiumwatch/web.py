@@ -301,15 +301,15 @@ PRICE_STEPS = [1000, 1500, 2000, 3000]
 @app.route("/")
 def index():
     days = max(1, min(60, request.args.get("days", 14, type=int)))
-    sort = request.args.get("sort", "rank")
+    # By date unless asked otherwise: you plan by evening.
+    sort = request.args.get("sort", "date")
     hide_film = request.args.get("film", "0") != "1"
     venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
     max_price = request.args.get("max", type=int)  # in cents
     hide_free = request.args.get("free", "0") != "1"
     only_starred = request.args.get("fav", "0") == "1"
     show_hidden = request.args.get("verborgen", "0") == "1"
-    music_sel = [m for m in request.args.getlist("muziek")
-                 if m in music.FILTERS or m == "alle"]
+    music_sel = _music_selection()
 
     now = clock.now()
     with connect() as conn:
@@ -317,7 +317,7 @@ def index():
         # Surfaced as a banner: a venue that silently stopped returning rows
         # would otherwise just look like a venue with nothing on.
         problems = [v for v in health.venue_health(conn, ACTIVE)
-                    if v["status"] != health.OK]
+                    if v["status"] in (health.FAIL, health.WARN)]
 
     total_found = len(rows)
 
@@ -376,6 +376,20 @@ def index():
         stats=_stats(),
         now=now,
     )
+
+
+def _music_selection() -> list[str]:
+    """Which music to show. Music only by default; 'muziek=alles' is everything.
+
+    -> ["alle"] for all music, a list of kinds, or [] for no music filter.
+    """
+    if "muziek" not in request.args:
+        return ["alle"]
+    sel = [m for m in request.args.getlist("muziek")
+           if m in music.FILTERS or m in ("alle", "alles")]
+    if "alles" in sel:
+        return []
+    return sel or ["alle"]
 
 
 def _back():
@@ -464,8 +478,7 @@ def calendar_view():
     venues = [v for v in request.args.getlist("venue") if v in VENUE_META]
     only_starred = request.args.get("fav", "0") == "1"
     hide_film = request.args.get("film", "0") != "1"
-    music_sel = [m for m in request.args.getlist("muziek")
-                 if m in music.FILTERS or m == "alle"]
+    music_sel = _music_selection()
 
     first = datetime(year, month, 1)
     last = datetime(year + (month == 12), (month % 12) + 1, 1)

@@ -354,3 +354,12 @@ def test_a_youth_fare_already_on_sale_is_mailed_before_the_window(conn, mailbox)
     due = notify.due_music_alerts(conn, now=NOW)
     assert [d["external_id"] for d in due] == ["phil"]
     assert due[0]["fare"] == 1250
+
+
+
+def test_a_known_bot_check_never_mails(conn, mailbox):
+    err = "Pagina 3 niet opgehaald: botcheck (HTTP 403); 129 voorstellingen gelezen"
+    for hours in (0, 12, 24):
+        poll_run(conn, "chasse", 129, NOW + timedelta(hours=hours), error=err)
+        notify.send_health_alerts(conn, ["chasse"], now=NOW + timedelta(hours=hours))
+    assert mailbox == []

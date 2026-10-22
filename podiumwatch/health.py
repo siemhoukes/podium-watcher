@@ -33,6 +33,14 @@ from . import clock
 OK = "ok"
 WARN = "warn"
 FAIL = "fail"
+# Working as well as the venue allows. Chasse and Theater Rotterdam answer two
+# pages and then a bot check; that was accepted on purpose, so it is shown on
+# /status but never as an alarm -- a banner on every visit for a known,
+# accepted limit teaches you to ignore the banner.
+LIMITED = "beperkt"
+
+# Run problems that are the venue declining, not the scraper breaking.
+_LIMIT_MARKERS = ("botcheck",)
 
 # The poller runs four times a day; nothing for this long means the timer or
 # the Pi is down, not that a venue is quiet.
@@ -85,7 +93,7 @@ def venue_health(
         _verdict(venue_id, runs, now, vanished.get(venue_id))
         for venue_id, runs in by_venue.items()
     ]
-    out.sort(key=lambda v: ({FAIL: 0, WARN: 1, OK: 2}[v["status"]], v["venue_id"]))
+    out.sort(key=lambda v: ({FAIL: 0, WARN: 1, LIMITED: 2, OK: 3}[v["status"]], v["venue_id"]))
     return out
 
 
@@ -178,6 +186,13 @@ def _verdict(venue_id: str, runs: list, now: datetime, vanished=None) -> dict:
         return _row(venue_id, WARN, f"Al {hours} uur geen run.", when, found)
 
     if latest["error"]:
+        if any(m in latest["error"] for m in _LIMIT_MARKERS):
+            return _row(
+                venue_id, LIMITED,
+                f"Leest {found} voorstellingen; daarna weigert een botcheck "
+                "verdere pagina's. Bewust zo gelaten.",
+                when, found,
+            )
         return _row(
             venue_id, WARN, f"Onvolledig: {latest['error'][:120]}", when, found
         )

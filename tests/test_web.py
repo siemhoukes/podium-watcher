@@ -59,7 +59,7 @@ def test_cancelled_shows_go_and_stale_ones_are_dated(tmp_path, monkeypatch):
     db.close()
 
     monkeypatch.setattr(web, "DB_PATH", path.as_posix())
-    html = web.app.test_client().get("/?days=7").get_data(as_text=True)
+    html = web.app.test_client().get("/?days=7&muziek=alles").get_data(as_text=True)
 
     assert "Nog te zien" in html
     # No longer on the venue's own listing: not offered as if it were.
@@ -217,7 +217,7 @@ def test_calendar_leaves_out_past_and_dealless_shows_and_filters_music(tmp_path,
     monkeypatch.setattr(web, "DB_PATH", path.as_posix())
     client = web.app.test_client()
     month = f"?year={later.year}&month={later.month}"
-    html = client.get("/calendar" + month).get_data(as_text=True)
+    html = client.get("/calendar" + month + "&muziek=alles").get_data(as_text=True)
     assert "Orkestavond" in html and "Cabaretavond" in html
     assert "Doelen zonder tarief" not in html
     if (now - timedelta(hours=3)).month == later.month:
@@ -225,3 +225,75 @@ def test_calendar_leaves_out_past_and_dealless_shows_and_filters_music(tmp_path,
 
     html = client.get("/calendar" + month + "&muziek=orkest").get_data(as_text=True)
     assert "Orkestavond" in html and "Cabaretavond" not in html
+
+
+
+def test_music_and_date_are_the_defaults(tmp_path, monkeypatch):
+    """Music only, earliest first -- unless asked for everything or the ranking."""
+    import json as _json
+
+    path = tmp_path / "d.sqlite3"
+    db = Database(path)
+    c = db.conn
+    seen = iso(datetime.now(timezone.utc) - timedelta(minutes=30))
+    tm = "https://apps.ticketmatic.com/widgets/tilburg_theaters/addtickets?event=1"
+    base = clock.now().replace(hour=20, minute=15, second=0, microsecond=0)
+
+    def show(ext, title, tags, days):
+        cur = c.execute(
+            "INSERT INTO shows (venue_id, external_id, title, starts_at, url, tags,"
+            " ticket_url, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+            ("tilburg", ext, title, (base + timedelta(days=days)).isoformat(),
+             "https://x.test/", _json.dumps(tags), tm, seen, seen),
+        )
+        c.execute(
+            "INSERT INTO snapshots (show_id, observed_at, state, price_min_cents)"
+            " VALUES (?,?,?,?)", (cur.lastrowid, seen, "available", 3000),
+        )
+
+    show("later", "Late symfonie", ["klassieke muziek"], 6)
+    show("soon", "Vroeg kwartet", ["klassieke muziek"], 2)
+    show("cab", "Cabaret", ["cabaret & comedy"], 3)
+    db.commit()
+    db.close()
+
+    monkeypatch.setattr(web, "DB_PATH", path.as_posix())
+    client = web.app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+    assert "Cabaret<" not in html
+    assert html.index("Vroeg kwartet") < html.index("Late symfonie")
+
+    html = client.get("/?muziek=alles").get_data(as_text=True)
+    assert "Cabaret<" in html
+
+    # Clearing the last genre chip goes back to all music, not to everything.
+    html = client.get("/?muziek=opera").get_data(as_text=True)
+    assert "Vroeg kwartet" not in html
+
+
+def test_a_known_bot_check_is_not_an_alarm_on_the_dashboard(tmp_path, monkeypatch):
+    path = tmp_path / "b.sqlite3"
+    db = Database(path)
+    now_utc = datetime.now(timezone.utc)
+    db.conn.execute(
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error, complete)"
+        " VALUES ('chasse', ?, 1, 129, ?, 0)",
+        (iso(now_utc - timedelta(hours=1)),
+         "Pagina 3 niet opgehaald: botcheck (HTTP 403); 129 voorstellingen gelezen"),
+    )
+    db.conn.execute(
+        "INSERT INTO poll_runs (venue_id, started_at, ok, shows_found, error, complete)"
+        " VALUES ('parktheater', ?, 0, 0, ?, 0)",
+        (iso(now_utc - timedelta(hours=1)), "Agenda niet opgehaald: virtuele wachtrij"),
+    )
+    db.commit()
+    db.close()
+
+    monkeypatch.setattr(web, "DB_PATH", path.as_posix())
+    client = web.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    assert "botcheck" not in html          # accepted, so not an alarm
+    assert "wachtrij" in html              # a real problem still is
+    status = client.get("/status").get_data(as_text=True)
+    assert "Bewust zo gelaten" in status   # but /status says what is going on
