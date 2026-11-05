@@ -458,17 +458,17 @@ id and need no such trick.
 
 Two units on the Pi: `podium-poller.timer` polls four times a day (06/12/18/22,
 15-minute random delay, `Persistent=true` so a missed run still collects), and
-`podium-web.service` serves the dashboard under gunicorn on port 5011. nginx
+`podium-web.service` serves the dashboard under gunicorn on a local port. nginx
 fronts it at `podium.siem.codes` behind `siem-auth`.
 
 Adding the subdomain to the tunnel has one trap: the service runs with
 `--config /etc/cloudflared/config.yml`, but a bare `cloudflared tunnel ingress
 validate` reads `~/.cloudflared/config.yml`, which is a different, stale file.
-Always pass `--config` explicitly. `route dns` must run as `sausje` *without*
-sudo, since `cert.pem` lives in that home directory.
+Always pass `--config` explicitly. `route dns` must run as your normal Pi user
+*without* sudo, since `cert.pem` lives in that home directory.
 
 ```bash
-ssh sausje@raspberrypi "cd ~/podium-watcher && git pull --ff-only && sudo systemctl start podium-poller.service"
+ssh <pi-user>@<pi-host> "cd ~/podium-watcher && git pull --ff-only && sudo systemctl start podium-poller.service"
 systemctl list-timers podium-poller.timer --no-pager
 journalctl -u podium-poller -n 50 --no-pager
 ```
