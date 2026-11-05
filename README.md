@@ -485,3 +485,7 @@ a CRLF `install.sh` fails with "bad interpreter".
 - One-tap *got it / missed it* logging, to learn whether venues cap the youth
   allocation separately from the hall
 
+
+## License
+
+MIT, see [LICENSE](LICENSE).
